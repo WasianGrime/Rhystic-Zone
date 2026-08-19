@@ -13,7 +13,7 @@ A Magic: The Gathering Commander hub and deck builder — browse top commanders 
 - **Magic News** — snapshot of official Wizards of the Coast headlines with a staleness indicator, since the site can't be pulled in live
 - **Settings** - light/dark/auto theme, five accent color palettes, saved to your browser
 
-Decks are saved locally in your browser (`localStorage`) — there's no backend or account system.
+Decks are saved locally in your browser (`localStorage`) - there's no backend or account system.
 
 ## Tech stack
 
@@ -41,7 +41,7 @@ Builds a static `dist/` folder ready to deploy anywhere.
 
 ## Deploying
 
-This is a static Vite app, so it deploys to any static host. [Vercel](https://vercel.com) or [Netlify](https://netlify.com) are the easiest — connect this repo and it auto-detects the build. Both `vercel.json` and `public/_redirects` are already included so client-side routing (e.g. `/commander/:name`, `/builder`) works correctly on refresh.
+This is a static Vite app, so it deploys to any static host. [Vercel](https://vercel.com) or [Netlify](https://netlify.com) are the easiest - connect this repo and it auto-detects the build. Both `vercel.json` and `public/_redirects` are already included so client-side routing (e.g. `/commander/:name`, `/builder`) works correctly on refresh.
 
 ## Attribution
 
