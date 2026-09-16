@@ -1,5 +1,6 @@
 import { Route, Routes } from 'react-router-dom'
 import Navbar from './components/Navbar'
+import Landing from './pages/Landing'
 import Home from './pages/Home'
 import CommanderDetail from './pages/CommanderDetail'
 import DeckBuilder from './pages/DeckBuilder'
@@ -13,7 +14,8 @@ export default function App() {
       <Navbar />
       <main>
         <Routes>
-          <Route path="/" element={<Home />} />
+          <Route path="/" element={<Landing />} />
+          <Route path="/commanders" element={<Home />} />
           <Route path="/commander/:name" element={<CommanderDetail />} />
           <Route path="/builder" element={<DeckBuilder />} />
           <Route path="/builder/:deckId" element={<DeckBuilder />} />

@@ -10,7 +10,7 @@ export default function Navbar() {
       </NavLink>
       <NavSearch />
       <nav className="nav-links">
-        <NavLink to="/" end className={({ isActive }) => (isActive ? 'active' : '')}>
+        <NavLink to="/commanders" className={({ isActive }) => (isActive ? 'active' : '')}>
           Commanders
         </NavLink>
         <NavLink to="/decks" className={({ isActive }) => (isActive ? 'active' : '')}>

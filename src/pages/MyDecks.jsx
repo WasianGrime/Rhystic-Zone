@@ -14,7 +14,7 @@ export default function MyDecks() {
 
       {decks.length === 0 && (
         <p className="section-hint">
-          No decks yet. Head to a <Link to="/">commander</Link> and start one.
+          No decks yet. Head to a <Link to="/commanders">commander</Link> and start one.
         </p>
       )}
 
