@@ -4,7 +4,7 @@ import { ACCENT_THEMES } from '../data/accentThemes'
 const ThemeContext = createContext(null)
 
 const STORAGE_KEY = 'command-zone-theme'
-const defaultSettings = { mode: 'system', accent: 'ocean' }
+const defaultSettings = { mode: 'dark', accent: 'ocean' }
 
 function loadSettings() {
   try {

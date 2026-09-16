@@ -1,46 +1,99 @@
-import { useEffect, useMemo, useState } from 'react'
-import { findCommandersPage, cardImage } from '../api/scryfall'
+import { useCallback, useEffect, useState } from 'react'
+import { getLegendaryCreaturePool, getRandomLegendaryCard, cardImage } from '../api/scryfall'
 
-const FALLING_COUNT = 16
+const MAX_FALLING = 16
+const LANE_WIDTH_PX = 220 // wide enough that even the biggest card + jitter can't cross into the next lane
+const SIZE_RANGE = [110, 170]
+const LANE_JITTER = 0.12 // fraction of a lane's width the card center can drift from the lane's middle
 
 function randomBetween(min, max) {
   return min + Math.random() * (max - min)
 }
 
-// Ambient decoration only — fetches one page of popular commander art and
-// lets it drift down behind the landing page content on a loop.
+function shuffle(array) {
+  const copy = [...array]
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[copy[i], copy[j]] = [copy[j], copy[i]]
+  }
+  return copy
+}
+
+function laneCountFor(width) {
+  return Math.min(MAX_FALLING, Math.max(1, Math.floor(width / LANE_WIDTH_PX)))
+}
+
+// Position/size/rotation only — kept separate from timing (duration/delay)
+// so a mid-flight refresh never touches the animation clock, only what's
+// drawn in it.
+function randomVisual(laneWidthPct, laneIndex) {
+  return {
+    left: laneIndex * laneWidthPct + laneWidthPct / 2 + randomBetween(-LANE_JITTER, LANE_JITTER) * laneWidthPct,
+    rotate: randomBetween(-14, 14),
+    size: randomBetween(...SIZE_RANGE),
+  }
+}
+
+// Ambient decoration only. Each horizontal lane holds one card that falls on
+// an infinite CSS loop; every time it completes a loop (i.e. hits the
+// bottom), we swap in a fresh random legendary creature or planeswalker via
+// Scryfall's `/cards/random`, so the set never repeats and never overlaps
+// (lanes are wide enough that cards can't cross into a neighboring one).
 export default function FallingCards() {
-  const [images, setImages] = useState([])
+  const [laneCount, setLaneCount] = useState(() =>
+    typeof window === 'undefined' ? MAX_FALLING : laneCountFor(window.innerWidth)
+  )
+  const [cards, setCards] = useState([])
 
   useEffect(() => {
+    function onResize() {
+      setLaneCount(laneCountFor(window.innerWidth))
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  useEffect(() => {
+    if (laneCount === 0) return
     let cancelled = false
-    findCommandersPage({ order: 'edhrec', page: 1 })
-      .then((data) => {
+    getLegendaryCreaturePool()
+      .then((pool) => {
         if (cancelled) return
-        const urls = (data.data || [])
-          .map((c) => c.image_uris?.art_crop || cardImage(c, 'small'))
-          .filter(Boolean)
-        setImages(urls)
+        const urls = pool.map((c) => cardImage(c, 'normal')).filter(Boolean)
+        if (urls.length === 0) return
+        const laneWidthPct = 100 / laneCount
+        const picks = shuffle(urls).slice(0, laneCount)
+        setCards(
+          picks.map((src, i) => ({
+            laneIndex: i,
+            src,
+            duration: randomBetween(24, 46),
+            delay: randomBetween(-40, 0),
+            ...randomVisual(laneWidthPct, i),
+          }))
+        )
       })
       .catch(() => {})
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [laneCount])
 
-  const cards = useMemo(() => {
-    if (images.length === 0) return []
-    return Array.from({ length: FALLING_COUNT }, (_, i) => ({
-      id: i,
-      src: images[i % images.length],
-      left: randomBetween(2, 92),
-      duration: randomBetween(24, 46),
-      delay: randomBetween(-40, 0),
-      rotate: randomBetween(-18, 18),
-      size: randomBetween(70, 130),
-    }))
-    // Only reshuffle when the image pool itself changes, not on every render.
-  }, [images.length])
+  const refreshLane = useCallback((laneIndex) => {
+    getRandomLegendaryCard()
+      .then((card) => {
+        const src = cardImage(card, 'normal') || cardImage(card, 'large')
+        if (!src) return
+        setCards((prev) => {
+          if (laneIndex >= prev.length) return prev
+          const laneWidthPct = 100 / prev.length
+          const next = [...prev]
+          next[laneIndex] = { ...next[laneIndex], src, ...randomVisual(laneWidthPct, laneIndex) }
+          return next
+        })
+      })
+      .catch(() => {})
+  }, [])
 
   if (cards.length === 0) return null
 
@@ -48,14 +101,16 @@ export default function FallingCards() {
     <div className="falling-cards" aria-hidden="true">
       {cards.map((c) => (
         <img
-          key={c.id}
+          key={c.laneIndex}
           src={c.src}
           alt=""
           className="falling-card"
           loading="lazy"
+          onAnimationIteration={() => refreshLane(c.laneIndex)}
           style={{
             left: `${c.left}%`,
             width: `${c.size}px`,
+            marginLeft: `-${c.size / 2}px`,
             animationDuration: `${c.duration}s`,
             animationDelay: `${c.delay}s`,
             '--rotate': `${c.rotate}deg`,

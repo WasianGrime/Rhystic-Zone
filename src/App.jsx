@@ -7,6 +7,7 @@ import DeckBuilder from './pages/DeckBuilder'
 import MyDecks from './pages/MyDecks'
 import SearchResults from './pages/SearchResults'
 import News from './pages/News'
+import Shop from './pages/Shop'
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="/decks" element={<MyDecks />} />
           <Route path="/search" element={<SearchResults />} />
           <Route path="/news" element={<News />} />
+          <Route path="/shop" element={<Shop />} />
         </Routes>
       </main>
     </>

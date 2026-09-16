@@ -7,14 +7,20 @@ export default function MyDecks() {
 
   return (
     <div className="page">
-      <div className="hero">
-        <h1>My Decks</h1>
-        <p>Decks are saved locally in this browser.</p>
+      <div className="deck-builder-header">
+        <div className="hero">
+          <h1>My Decks</h1>
+          <p>Decks are saved locally in this browser.</p>
+        </div>
+        <Link to="/builder" className="primary-button">
+          + Add Deck
+        </Link>
       </div>
 
       {decks.length === 0 && (
         <p className="section-hint">
-          No decks yet. Head to a <Link to="/commanders">commander</Link> and start one.
+          No decks yet. Click <strong>+ Add Deck</strong>, or head to a{' '}
+          <Link to="/commanders">commander</Link> and start one.
         </p>
       )}
 

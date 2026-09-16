@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { findCommandersPage, cardImage, cardPrice, formatPrice } from '../api/scryfall'
+import { findCommandersPage, getRandomCommanders, cardImage, cardPrice, formatPrice } from '../api/scryfall'
 import ColorPips from '../components/ColorPips'
 import CommanderFilters from '../components/CommanderFilters'
 
@@ -15,6 +15,7 @@ export default function Home() {
   const [hasMore, setHasMore] = useState(true)
   const [error, setError] = useState(null)
   const [refreshAvailable, setRefreshAvailable] = useState(false)
+  const [randomizing, setRandomizing] = useState(false)
 
   const [order, setOrder] = useState('edhrec')
   const [colors, setColors] = useState([])
@@ -92,6 +93,28 @@ export default function Home() {
       })
   }, [colors, order])
 
+  function handleRandomize() {
+    const id = ++requestId.current
+    setRandomizing(true)
+    setError(null)
+    setRefreshAvailable(false)
+    getRandomCommanders(colors, 20)
+      .then((results) => {
+        if (id !== requestId.current) return
+        setCommanders(results)
+        setHasMore(false)
+        firstPageSignature.current = results.map((c) => c.id).join(',')
+      })
+      .catch((err) => {
+        if (id !== requestId.current) return
+        setError(err.message || 'Could not randomize commanders.')
+      })
+      .finally(() => {
+        if (id !== requestId.current) return
+        setRandomizing(false)
+      })
+  }
+
   useEffect(() => {
     const el = sentinelRef.current
     if (!el) return
@@ -153,6 +176,9 @@ export default function Home() {
           onColorsChange={setColors}
           onClear={clearFilters}
         />
+        <button className="randomize-button" onClick={handleRandomize} disabled={randomizing}>
+          🎲 {randomizing ? 'Randomizing…' : 'Randomize'}
+        </button>
       </div>
 
       {refreshAvailable && (
@@ -163,8 +189,12 @@ export default function Home() {
       )}
 
       {error && <p className="error">{error}</p>}
-      {loading && <p className="loading-text">Loading commanders from Scryfall…</p>}
-      {!loading && !error && commanders.length === 0 && (
+      {(loading || randomizing) && (
+        <p className="loading-text">
+          {randomizing ? 'Pulling a random set of commanders…' : 'Loading commanders from Scryfall…'}
+        </p>
+      )}
+      {!loading && !randomizing && !error && commanders.length === 0 && (
         <p className="section-hint">No commanders match those filters.</p>
       )}
 

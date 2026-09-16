@@ -56,6 +56,53 @@ export async function autocomplete(term) {
   return data.data || []
 }
 
+const LEGENDARY_QUERY = 't:legendary (t:creature or t:planeswalker) -is:funny'
+
+// A broad batch of legendary creatures/planeswalkers (not just commander
+// staples) for seeding decorative UI — one request, shuffled client-side.
+export async function getLegendaryCreaturePool() {
+  const data = await searchCards(LEGENDARY_QUERY, { order: 'edhrec' })
+  return data.data || []
+}
+
+// One genuinely random card matching a query, via Scryfall's own
+// `/cards/random` endpoint. Cache-busted on purpose — this must never return
+// the same cached result twice. Randomizes both which card and which
+// printing, since `/cards/random` draws from every matching printing.
+export function getRandomCardMatching(query) {
+  const bust = `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
+  return get(`/cards/random?q=${encodeURIComponent(query)}&_=${bust}`)
+}
+
+export function getRandomLegendaryCard() {
+  return getRandomCardMatching(LEGENDARY_QUERY)
+}
+
+// A batch of independently-random commanders (card + printing), optionally
+// restricted to an exact color identity. Individual failures are dropped
+// rather than failing the whole batch, and duplicate cards (rare, since a
+// draw spans every legal commander printing) are deduped by id.
+export async function getRandomCommanders(colors = [], count = 20) {
+  const clauses = ['is:commander', '-is:funny']
+  if (colors.length > 0) {
+    const ids = colors.includes('C') ? 'c' : colors.join('').toLowerCase()
+    clauses.push(`id=${ids}`)
+  }
+  const query = clauses.join(' ')
+  const settled = await Promise.allSettled(
+    Array.from({ length: count }, () => getRandomCardMatching(query))
+  )
+  const seen = new Set()
+  const results = []
+  for (const r of settled) {
+    if (r.status !== 'fulfilled') continue
+    if (seen.has(r.value.id)) continue
+    seen.add(r.value.id)
+    results.push(r.value)
+  }
+  return results
+}
+
 // Cards legal in the Commander format, whose color identity fits inside the
 // commander's, ranked by Scryfall's own `edhrec_rank` field — this is public
 // per-card metadata Scryfall exposes, not a scrape of EDHREC's site.
