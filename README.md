@@ -4,16 +4,16 @@ A Magic: The Gathering Commander hub and deck builder — browse top commanders 
 
 ## Features
 
-- **Top Commanders** — live-ranked commander grid (Scryfall's `edhrec_rank`) with infinite scroll, color-identity filtering, and a "new rankings available" refresh prompt
-- **Commander detail pages** — full card text, market price, buy links (TCGplayer, Cardmarket, Cardhoarder, PriceCharting, eBay), every printing (click to switch which one you're viewing), and popular infinite combos in that color identity
-- **Deck builder** — set a commander, search-add cards with singleton/color-identity enforcement, sort the list by type/name/mana value, mana curve + color distribution charts, running price total, decklist export
-- **Recommendations** — a Top Picks grid plus horizontally-scrolling rows grouped by playstyle (Ramp, Removal, Card Draw, Counterspells, Tokens, Lifegain, Reanimator, Aristocrats, Stax); adding a card auto-backfills the row with the next pick
-- **Infinite combo detection** — checks your current decklist against [Commander Spellbook](https://commanderspellbook.com), showing combos you've already assembled and combos one card away (with a one-click add for the missing piece)
-- **Global search** — jump straight to a card, or hit Enter to see every card matching a name
+- **Top Commanders** - live-ranked commander grid (Scryfall's `edhrec_rank`) with infinite scroll, color-identity filtering, and a "new rankings available" refresh prompt
+- **Commander detail pages** - full card text, market price, buy links (TCGplayer, Cardmarket, Cardhoarder, PriceCharting, eBay), every printing (click to switch which one you're viewing), and popular infinite combos in that color identity
+- **Deck builder** - set a commander, search-add cards with singleton/color-identity enforcement, sort the list by type/name/mana value, mana curve + color distribution charts, running price total, decklist export
+- **Recommendations** - a Top Picks grid plus horizontally-scrolling rows grouped by playstyle (Ramp, Removal, Card Draw, Counterspells, Tokens, Lifegain, Reanimator, Aristocrats, Stax); adding a card auto-backfills the row with the next pick
+- **Infinite combo detection** - checks your current decklist against [Commander Spellbook](https://commanderspellbook.com), showing combos you've already assembled and combos one card away (with a one-click add for the missing piece)
+- **Global search** - jump straight to a card, or hit Enter to see every card matching a name
 - **Magic News** — snapshot of official Wizards of the Coast headlines with a staleness indicator, since the site can't be pulled in live
-- **Settings** — light/dark/auto theme, five accent color palettes, saved to your browser
+- **Settings** - light/dark/auto theme, five accent color palettes, saved to your browser
 
-Decks are saved locally in your browser (`localStorage`) — there's no backend or account system.
+Decks are saved locally in your browser (`localStorage`) - there's no backend or account system.
 
 ## Tech stack
 
@@ -41,7 +41,7 @@ Builds a static `dist/` folder ready to deploy anywhere.
 
 ## Deploying
 
-This is a static Vite app, so it deploys to any static host. [Vercel](https://vercel.com) or [Netlify](https://netlify.com) are the easiest — connect this repo and it auto-detects the build. Both `vercel.json` and `public/_redirects` are already included so client-side routing (e.g. `/commander/:name`, `/builder`) works correctly on refresh.
+This is a static Vite app, so it deploys to any static host. [Vercel](https://vercel.com) or [Netlify](https://netlify.com) are the easiest - connect this repo and it auto-detects the build. Both `vercel.json` and `public/_redirects` are already included so client-side routing (e.g. `/commander/:name`, `/builder`) works correctly on refresh.
 
 ## Attribution
 
