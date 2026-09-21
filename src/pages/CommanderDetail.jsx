@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getCardByName, getRecommendedCards, cardImage, canBeCommander, cardPrice, formatPrice } from '../api/scryfall'
+import {
+  getCardByName,
+  getRecommendedCards,
+  getBestPrinting,
+  cardImage,
+  canBeCommander,
+  cardPrice,
+  formatPrice,
+} from '../api/scryfall'
 import CardTile from '../components/CardTile'
 import ColorPips from '../components/ColorPips'
 import ManaCost from '../components/ManaCost'
@@ -31,8 +39,13 @@ export default function CommanderDetail() {
         const card = await getCardByName(name)
         if (cancelled) return
         setCommander(card)
+        setLoading(false)
         const recommended = await getRecommendedCards(card)
         if (!cancelled) setRecs(recommended)
+        // Quietly upgrade to the best-looking printing once it's known —
+        // shows the default art immediately rather than waiting on this.
+        const best = await getBestPrinting(card)
+        if (!cancelled && best && best.id !== card.id) setCommander(best)
       } catch (err) {
         if (!cancelled) setError(err.message)
       } finally {

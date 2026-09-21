@@ -141,6 +141,16 @@ export function cardImage(card, size = 'normal') {
   return null
 }
 
+// The cropped-artwork image, checking both single-faced and double-faced
+// card shapes. Falls back to a full 'normal' card image (never the small
+// 146px one) so a card with no art crop still renders sharp when stretched
+// across a wide grid tile.
+export function cardArtCrop(card) {
+  return (
+    card.image_uris?.art_crop || card.card_faces?.[0]?.image_uris?.art_crop || cardImage(card, 'normal') || null
+  )
+}
+
 // USD market price from Scryfall's own aggregated pricing data (falls back
 // to the foil price for foil-only printings). Returns null if unpriced.
 export function cardPrice(card) {
@@ -186,4 +196,46 @@ export async function getPrintings(card) {
   const path = card.prints_search_uri.replace(BASE, '')
   const data = await get(path)
   return data.data || []
+}
+
+// Picks the most "premium-looking" printing out of a card's full print run:
+// showcase/extended-art/borderless frames and full-art treatments score
+// highest, with market price folded in (log-scaled, so a $40 showcase print
+// doesn't get drowned out by a $400 misprint outlier) as a tiebreaker/proxy
+// for desirability. Skips digital-only and oversized printings.
+export function pickBestPrinting(printings) {
+  const eligible = printings.filter(
+    (p) => !p.digital && !p.oversized && (p.image_uris || p.card_faces?.[0]?.image_uris)
+  )
+  if (eligible.length === 0) return null
+
+  let best = null
+  let bestScore = -Infinity
+  for (const p of eligible) {
+    const effects = p.frame_effects || []
+    let score = 0
+    if (effects.includes('showcase')) score += 3
+    if (effects.includes('extendedart')) score += 2
+    if (p.border_color === 'borderless') score += 3
+    if (p.full_art) score += 2
+    if (p.promo) score += 1
+    const price = Number(p.prices?.usd || p.prices?.usd_foil || 0) || 0
+    score += Math.log10(price + 1)
+    if (score > bestScore) {
+      bestScore = score
+      best = p
+    }
+  }
+  return best
+}
+
+// Fetches every printing of a card and returns the best-looking one (see
+// `pickBestPrinting`), falling back to the original card on any failure.
+export async function getBestPrinting(card) {
+  try {
+    const printings = await getPrintings(card)
+    return pickBestPrinting(printings) || card
+  } catch {
+    return card
+  }
 }

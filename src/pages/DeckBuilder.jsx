@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { cardImage, getRecommendedCards, getCardByName, cardPrice, formatPrice } from '../api/scryfall'
+import { cardImage, getRecommendedCards, getCardByName, getBestPrinting, cardPrice, formatPrice } from '../api/scryfall'
 import { findCombosInDeck, isInfiniteCombo } from '../api/commanderSpellbook'
 import { useLocalDecks } from '../hooks/useLocalDecks'
 import CardSearchBox from '../components/CardSearchBox'
@@ -185,6 +185,9 @@ export default function DeckBuilder() {
       setNotice(null)
     }
     setCommander(card)
+    // Quietly upgrade to the best-looking printing once it's known.
+    const best = await getBestPrinting(card)
+    if (best && best.id !== card.id) setCommander(best)
   }
 
   function addCard(card) {

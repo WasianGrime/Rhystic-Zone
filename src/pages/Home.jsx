@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { findCommandersPage, getRandomCommanders, cardImage, cardPrice, formatPrice } from '../api/scryfall'
+import { findCommandersPage, getRandomCommanders, cardArtCrop, cardPrice, formatPrice } from '../api/scryfall'
 import ColorPips from '../components/ColorPips'
 import CommanderFilters from '../components/CommanderFilters'
 
@@ -205,7 +205,7 @@ export default function Home() {
             <Link to={`/commander/${encodeURIComponent(card.name)}`} key={card.id} className="commander-card">
               <div className="commander-card-art">
                 <img
-                  src={card.image_uris?.art_crop || cardImage(card, 'small')}
+                  src={cardArtCrop(card)}
                   alt={card.name}
                   loading="lazy"
                 />
