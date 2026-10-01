@@ -66,10 +66,29 @@ export default function Home() {
     hasMoreRef.current = hasMore
   }, [hasMore])
 
+  // Keep the Set filter current for long-lived tabs: a newly released set
+  // (or a previously-rumored card going live) shows up here on its own,
+  // without needing a page reload. Scryfall's own request cache (10 min
+  // TTL, in src/api/scryfall.js) naturally throttles how often this
+  // actually re-fetches.
   useEffect(() => {
-    getSets()
-      .then(setSets)
-      .catch(() => {})
+    function refreshSets() {
+      getSets()
+        .then(setSets)
+        .catch(() => {})
+    }
+    refreshSets()
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') refreshSets()
+    }, UPDATE_CHECK_INTERVAL_MS)
+    function onVisible() {
+      if (document.visibilityState === 'visible') refreshSets()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [])
 
   const loadFirstPage = useCallback(() => {
