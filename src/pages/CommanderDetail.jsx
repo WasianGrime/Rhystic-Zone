@@ -96,6 +96,9 @@ export default function CommanderDetail() {
 
   return (
     <div className="page commander-detail">
+      <button className="back-button" onClick={() => navigate(-1)}>
+        ← Back
+      </button>
       <div className="commander-detail-top">
         <img className="commander-detail-art" src={cardImage(commander, 'large')} alt={commander.name} />
         <div className="commander-detail-info">

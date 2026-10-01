@@ -722,6 +722,23 @@ button {
 }
 
 /* Commander detail */
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0;
+  margin-bottom: 18px;
+}
+
+.back-button:hover {
+  color: var(--accent);
+}
+
 .commander-detail-top {
   display: grid;
   grid-template-columns: 320px 1fr;

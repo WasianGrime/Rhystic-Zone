@@ -10,29 +10,46 @@ import {
 } from '../api/scryfall'
 import ColorPips from '../components/ColorPips'
 import CommanderFilters from '../components/CommanderFilters'
+import { getCommanderBrowseState, saveCommanderBrowseState } from '../state/commanderBrowseCache'
 
 // How often (while the tab is visible) to quietly check whether the live
 // top-commanders ranking has moved — new sets, price/popularity shifts, etc.
 const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000
 
 export default function Home() {
-  const [commanders, setCommanders] = useState([])
-  const [loading, setLoading] = useState(true)
+  // Read once per mount — if you came back from a commander's page, this is
+  // what you had loaded before you clicked away.
+  const cachedRef = useRef(getCommanderBrowseState())
+  const cached = cachedRef.current
+  const hasCachedResults = Boolean(cached?.commanders?.length)
+
+  const [commanders, setCommanders] = useState(() => cached?.commanders ?? [])
+  const [loading, setLoading] = useState(!hasCachedResults)
   const [loadingMore, setLoadingMore] = useState(false)
-  const [hasMore, setHasMore] = useState(true)
+  const [hasMore, setHasMore] = useState(() => cached?.hasMore ?? true)
   const [error, setError] = useState(null)
   const [refreshAvailable, setRefreshAvailable] = useState(false)
   const [randomizing, setRandomizing] = useState(false)
 
-  const [order, setOrder] = useState('edhrec')
-  const [colors, setColors] = useState([])
-  const [set, setSet] = useState('')
+  const [order, setOrder] = useState(() => cached?.order ?? 'edhrec')
+  const [colors, setColors] = useState(() => cached?.colors ?? [])
+  const [set, setSet] = useState(() => cached?.set ?? '')
   const [sets, setSets] = useState([])
 
   const requestId = useRef(0)
-  const pageRef = useRef(1)
+  const pageRef = useRef(cached?.page ?? 1)
   const sentinelRef = useRef(null)
-  const firstPageSignature = useRef(null)
+  const firstPageSignature = useRef(cached?.firstPageSignature ?? null)
+  // Skips the very first automatic fetch when we've just restored a
+  // non-empty grid from cache — every later filter change goes through
+  // loadFirstPage normally.
+  const skipNextLoadRef = useRef(hasCachedResults)
+
+  // Always holds the latest render's values so the unmount cleanup below
+  // (which only runs once, on the empty-deps effect) can read current state
+  // without needing to be recreated every render.
+  const latestStateRef = useRef()
+  latestStateRef.current = { order, colors, set, commanders, hasMore }
 
   // Guard flags mirrored into refs so `loadMore` always reads fresh values
   // without needing to be recreated (and re-observed) on every loading tick.
@@ -83,8 +100,34 @@ export default function Home() {
   }, [colors, order, set])
 
   useEffect(() => {
+    if (skipNextLoadRef.current) {
+      skipNextLoadRef.current = false
+      return
+    }
     loadFirstPage()
   }, [loadFirstPage])
+
+  // Restore scroll position once, right after a cached grid renders.
+  useEffect(() => {
+    if (cached?.scrollY) {
+      requestAnimationFrame(() => window.scrollTo(0, cached.scrollY))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Snapshot filters/results/scroll position when leaving this page (e.g.
+  // clicking into a commander), so coming back restores exactly this view
+  // instead of refetching page 1 from scratch.
+  useEffect(() => {
+    return () => {
+      saveCommanderBrowseState({
+        ...latestStateRef.current,
+        page: pageRef.current,
+        firstPageSignature: firstPageSignature.current,
+        scrollY: window.scrollY,
+      })
+    }
+  }, [])
 
   const loadMore = useCallback(() => {
     if (loadingRef.current || loadingMoreRef.current || !hasMoreRef.current) return
