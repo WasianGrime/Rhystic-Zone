@@ -82,12 +82,13 @@ export function getRandomLegendaryCard() {
 // restricted to an exact color identity. Individual failures are dropped
 // rather than failing the whole batch, and duplicate cards (rare, since a
 // draw spans every legal commander printing) are deduped by id.
-export async function getRandomCommanders(colors = [], count = 20) {
+export async function getRandomCommanders(colors = [], count = 20, set = '') {
   const clauses = ['is:commander', '-is:funny']
   if (colors.length > 0) {
     const ids = colors.includes('C') ? 'c' : colors.join('').toLowerCase()
     clauses.push(`id=${ids}`)
   }
+  if (set) clauses.push(`set:${set}`)
   const query = clauses.join(' ')
   const settled = await Promise.allSettled(
     Array.from({ length: count }, () => getRandomCardMatching(query))
@@ -126,13 +127,27 @@ export async function getRecommendedCards(commander, { playstyles = [], limit = 
 // white and blue among more colors.
 // Returns the raw Scryfall list object (data/has_more/next_page) so callers
 // can page through results for infinite scroll.
-export function findCommandersPage({ colors = [], order = 'edhrec', page = 1 } = {}) {
+export function findCommandersPage({ colors = [], order = 'edhrec', page = 1, set = '' } = {}) {
   const clauses = ['is:commander', '-is:funny']
   if (colors.length > 0) {
     const ids = colors.includes('C') ? 'c' : colors.join('').toLowerCase()
     clauses.push(`id=${ids}`)
   }
+  if (set) clauses.push(`set:${set}`)
   return searchCards(clauses.join(' '), { order, page })
+}
+
+// Every real paper set (expansions, Commander precons, Masters sets, etc.)
+// via Scryfall's own `/sets` endpoint, for populating the "Set" filter.
+// Digital-only and token/memorabilia sets are excluded since they can't
+// contain a legal paper commander. Newest sets first.
+export async function getSets() {
+  const data = await get('/sets')
+  const sets = (data.data || []).filter(
+    (s) => !s.digital && s.set_type !== 'token' && s.set_type !== 'memorabilia'
+  )
+  sets.sort((a, b) => (b.released_at || '').localeCompare(a.released_at || ''))
+  return sets
 }
 
 export function cardImage(card, size = 'normal') {

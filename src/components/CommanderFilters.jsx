@@ -3,7 +3,16 @@ import ManaSymbol from './ManaSymbol'
 
 const COLORS = ['W', 'U', 'B', 'R', 'G']
 
-export default function CommanderFilters({ order, onOrderChange, colors, onColorsChange, onClear }) {
+export default function CommanderFilters({
+  order,
+  onOrderChange,
+  colors,
+  onColorsChange,
+  set,
+  sets,
+  onSetChange,
+  onClear,
+}) {
   const [open, setOpen] = useState(false)
   const boxRef = useRef(null)
 
@@ -29,7 +38,7 @@ export default function CommanderFilters({ order, onOrderChange, colors, onColor
     })
   }
 
-  const activeCount = colors.length + (order !== 'edhrec' ? 1 : 0)
+  const activeCount = colors.length + (order !== 'edhrec' ? 1 : 0) + (set ? 1 : 0)
 
   return (
     <div className="commander-filters" ref={boxRef}>
@@ -47,6 +56,21 @@ export default function CommanderFilters({ order, onOrderChange, colors, onColor
               <option value="name">Name (A–Z)</option>
               <option value="released">Newest printing</option>
             </select>
+          </div>
+
+          <div className="filter-group">
+            <label htmlFor="set-filter">Set</label>
+            <select id="set-filter" value={set} onChange={(e) => onSetChange(e.target.value)}>
+              <option value="">All sets</option>
+              {sets.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+            {set && order === 'edhrec' && (
+              <p className="color-filter-hint">Showing this set&rsquo;s commanders, most popular first.</p>
+            )}
           </div>
 
           <div className="filter-group">

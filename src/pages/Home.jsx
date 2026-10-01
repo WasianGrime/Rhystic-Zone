@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { findCommandersPage, getRandomCommanders, cardArtCrop, cardPrice, formatPrice } from '../api/scryfall'
+import {
+  findCommandersPage,
+  getRandomCommanders,
+  getSets,
+  cardArtCrop,
+  cardPrice,
+  formatPrice,
+} from '../api/scryfall'
 import ColorPips from '../components/ColorPips'
 import CommanderFilters from '../components/CommanderFilters'
 
@@ -19,6 +26,8 @@ export default function Home() {
 
   const [order, setOrder] = useState('edhrec')
   const [colors, setColors] = useState([])
+  const [set, setSet] = useState('')
+  const [sets, setSets] = useState([])
 
   const requestId = useRef(0)
   const pageRef = useRef(1)
@@ -40,6 +49,12 @@ export default function Home() {
     hasMoreRef.current = hasMore
   }, [hasMore])
 
+  useEffect(() => {
+    getSets()
+      .then(setSets)
+      .catch(() => {})
+  }, [])
+
   const loadFirstPage = useCallback(() => {
     const id = ++requestId.current
     pageRef.current = 1
@@ -49,7 +64,7 @@ export default function Home() {
     setHasMore(true)
     setRefreshAvailable(false)
 
-    findCommandersPage({ colors, order, page: 1 })
+    findCommandersPage({ colors, order, page: 1, set })
       .then((data) => {
         if (id !== requestId.current) return
         const results = data.data || []
@@ -65,7 +80,7 @@ export default function Home() {
         if (id !== requestId.current) return
         setLoading(false)
       })
-  }, [colors, order])
+  }, [colors, order, set])
 
   useEffect(() => {
     loadFirstPage()
@@ -76,7 +91,7 @@ export default function Home() {
     const id = requestId.current
     const nextPage = pageRef.current + 1
     setLoadingMore(true)
-    findCommandersPage({ colors, order, page: nextPage })
+    findCommandersPage({ colors, order, page: nextPage, set })
       .then((data) => {
         if (id !== requestId.current) return
         pageRef.current = nextPage
@@ -91,14 +106,14 @@ export default function Home() {
         if (id !== requestId.current) return
         setLoadingMore(false)
       })
-  }, [colors, order])
+  }, [colors, order, set])
 
   function handleRandomize() {
     const id = ++requestId.current
     setRandomizing(true)
     setError(null)
     setRefreshAvailable(false)
-    getRandomCommanders(colors, 20)
+    getRandomCommanders(colors, 20, set)
       .then((results) => {
         if (id !== requestId.current) return
         setCommanders(results)
@@ -132,7 +147,7 @@ export default function Home() {
   useEffect(() => {
     function checkForUpdates() {
       if (loadingRef.current || document.visibilityState !== 'visible') return
-      findCommandersPage({ colors, order, page: 1 })
+      findCommandersPage({ colors, order, page: 1, set })
         .then((data) => {
           const freshIds = (data.data || []).map((c) => c.id).join(',')
           if (firstPageSignature.current && freshIds && freshIds !== firstPageSignature.current) {
@@ -151,11 +166,12 @@ export default function Home() {
       clearInterval(interval)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [colors, order])
+  }, [colors, order, set])
 
   function clearFilters() {
     setOrder('edhrec')
     setColors([])
+    setSet('')
   }
 
   return (
@@ -174,6 +190,9 @@ export default function Home() {
           onOrderChange={setOrder}
           colors={colors}
           onColorsChange={setColors}
+          set={set}
+          sets={sets}
+          onSetChange={setSet}
           onClear={clearFilters}
         />
         <button className="randomize-button" onClick={handleRandomize} disabled={randomizing}>
