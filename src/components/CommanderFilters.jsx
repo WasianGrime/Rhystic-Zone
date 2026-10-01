@@ -14,6 +14,8 @@ export default function CommanderFilters({
   onClear,
 }) {
   const [open, setOpen] = useState(false)
+  const [setPickerOpen, setSetPickerOpen] = useState(false)
+  const [setQuery, setSetQuery] = useState('')
   const boxRef = useRef(null)
 
   useEffect(() => {
@@ -23,6 +25,30 @@ export default function CommanderFilters({
     document.addEventListener('mousedown', onClickOutside)
     return () => document.removeEventListener('mousedown', onClickOutside)
   }, [])
+
+  // Collapse the set picker along with the rest of the panel, so it doesn't
+  // reappear already-expanded the next time Filters is opened.
+  useEffect(() => {
+    if (!open) {
+      setSetPickerOpen(false)
+      setSetQuery('')
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!setPickerOpen) return
+    function onKeyDown(e) {
+      if (e.key === 'Escape') setSetPickerOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [setPickerOpen])
+
+  function pickSet(code) {
+    onSetChange(code)
+    setSetPickerOpen(false)
+    setSetQuery('')
+  }
 
   function toggleColor(c) {
     // Functional update so rapid clicks each build on the latest state
@@ -39,6 +65,10 @@ export default function CommanderFilters({
   }
 
   const activeCount = colors.length + (order !== 'edhrec' ? 1 : 0) + (set ? 1 : 0)
+  const selectedSet = sets.find((s) => s.code === set)
+  const visibleSets = setQuery
+    ? sets.filter((s) => s.name.toLowerCase().includes(setQuery.toLowerCase()))
+    : sets
 
   return (
     <div className="commander-filters" ref={boxRef}>
@@ -58,16 +88,82 @@ export default function CommanderFilters({
             </select>
           </div>
 
-          <div className="filter-group">
-            <label htmlFor="set-filter">Set</label>
-            <select id="set-filter" value={set} onChange={(e) => onSetChange(e.target.value)}>
-              <option value="">All sets</option>
-              {sets.map((s) => (
-                <option key={s.code} value={s.code}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+          <div className="filter-group set-filter-group">
+            <label>Set</label>
+            <button
+              type="button"
+              className="set-picker-toggle"
+              onClick={() => setSetPickerOpen((o) => !o)}
+            >
+              {selectedSet?.icon_svg_uri && (
+                <span
+                  className="set-icon"
+                  style={{
+                    WebkitMaskImage: `url(${selectedSet.icon_svg_uri})`,
+                    maskImage: `url(${selectedSet.icon_svg_uri})`,
+                  }}
+                />
+              )}
+              <span className="set-picker-toggle-label">{selectedSet ? selectedSet.name : 'All sets'}</span>
+              <span className="filter-caret">{setPickerOpen ? '▴' : '▾'}</span>
+            </button>
+
+            {setPickerOpen && (
+              <div className="set-picker">
+                <div className="set-picker-header">
+                  <input
+                    type="text"
+                    className="set-picker-search"
+                    placeholder="Search sets…"
+                    value={setQuery}
+                    onChange={(e) => setSetQuery(e.target.value)}
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="set-picker-close"
+                    onClick={() => setSetPickerOpen(false)}
+                    aria-label="Close set picker"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="set-picker-grid">
+                  <button
+                    type="button"
+                    className={`set-picker-item ${!set ? 'active' : ''}`}
+                    onClick={() => pickSet('')}
+                  >
+                    <span className="set-icon set-icon-all">∀</span>
+                    <span className="set-picker-name">All sets</span>
+                  </button>
+                  {visibleSets.map((s) => (
+                    <button
+                      key={s.code}
+                      type="button"
+                      className={`set-picker-item ${set === s.code ? 'active' : ''}`}
+                      onClick={() => pickSet(s.code)}
+                      title={s.name}
+                    >
+                      {s.icon_svg_uri && (
+                        <span
+                          className="set-icon"
+                          style={{
+                            WebkitMaskImage: `url(${s.icon_svg_uri})`,
+                            maskImage: `url(${s.icon_svg_uri})`,
+                          }}
+                        />
+                      )}
+                      <span className="set-picker-name">{s.name}</span>
+                    </button>
+                  ))}
+                  {visibleSets.length === 0 && (
+                    <p className="set-picker-empty">No sets match &ldquo;{setQuery}&rdquo;.</p>
+                  )}
+                </div>
+              </div>
+            )}
+
             {set && order === 'edhrec' && (
               <p className="color-filter-hint">Showing this set&rsquo;s commanders, most popular first.</p>
             )}
