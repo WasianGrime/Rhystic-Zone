@@ -21,6 +21,7 @@ import ManaCost from '../components/ManaCost'
 import CardTile from '../components/CardTile'
 import BuyLinks from '../components/BuyLinks'
 import ComboCard from '../components/ComboCard'
+import CardPrintings from '../components/CardPrintings'
 import { PLAYSTYLE_FILTERS } from '../data/playstyles'
 
 const TYPE_ORDER = ['Creature', 'Planeswalker', 'Battle', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Land']
@@ -47,6 +48,22 @@ function isBasicLand(card) {
 
 function plural(n, word) {
   return `${n} ${word}${n === 1 ? '' : 's'}`
+}
+
+// Basics and "any number of cards named" cards can exceed one copy.
+function isStackable(card) {
+  return isBasicLand(card) || /any number of cards named/i.test(card.oracle_text || '')
+}
+
+// Adds a card to a deck/sideboard list, merging by name so a second printing
+// of the same card never creates a second row.
+function addToList(list, card, qty) {
+  const idx = list.findIndex((e) => e.card.name === card.name)
+  if (idx === -1) return [...list, { card, qty: isStackable(card) ? qty : 1 }]
+  if (!isStackable(card)) return list
+  const next = [...list]
+  next[idx] = { ...next[idx], qty: next[idx].qty + qty }
+  return next
 }
 
 function primaryType(card) {
@@ -92,6 +109,8 @@ export default function DeckBuilder() {
   const [cards, setCards] = useState(existing?.cards || []) // [{ card, qty }]
   const [notice, setNotice] = useState(null)
   const [sortMode, setSortMode] = useState('type')
+  const [sideboard, setSideboard] = useState(existing?.sideboard || []) // [{ card, qty }]
+  const [selected, setSelected] = useState(null) // { cardId, zone: 'main' | 'sideboard' }
   const [showImport, setShowImport] = useState(Boolean(location.state?.openImport))
   const [importing, setImporting] = useState(false)
 
@@ -277,7 +296,7 @@ export default function DeckBuilder() {
     entries.forEach((entry, i) => {
       const card = resolved[i]
       if (!card || i === commanderIndex) return
-      const stackable = isBasicLand(card) || /any number of cards named/i.test(card.oracle_text || '')
+      const stackable = isStackable(card)
       const current = merged.get(card.name)
       if (!current) {
         merged.set(card.name, { card, qty: stackable ? entry.qty : 1 })
@@ -334,12 +353,83 @@ export default function DeckBuilder() {
     return true
   }
 
+  function removeFromSideboard(cardId) {
+    setSideboard((prev) => prev.filter((e) => e.card.id !== cardId))
+  }
+
+  function moveToSideboard(entry) {
+    setCards((prev) => prev.filter((e) => e.card.id !== entry.card.id))
+    setSideboard((prev) => addToList(prev, entry.card, entry.qty))
+    setSelected(null)
+    setNotice(`${entry.card.name} moved to the sideboard.`)
+  }
+
+  function moveToMain(entry) {
+    if (!cardFitsIdentity(entry.card)) {
+      setNotice(`${entry.card.name} is outside ${commander.name}’s color identity — it stays in the sideboard.`)
+      setSelected(null)
+      return
+    }
+    const alreadyIn = !isStackable(entry.card) && cards.some((e) => e.card.name === entry.card.name)
+    setSideboard((prev) => prev.filter((e) => e.card.id !== entry.card.id))
+    setCards((prev) => addToList(prev, entry.card, entry.qty))
+    setSelected(null)
+    setNotice(
+      alreadyIn
+        ? `${entry.card.name} was already in the main deck, so the sideboard copy was dropped.`
+        : `${entry.card.name} moved to the main deck.`
+    )
+  }
+
+  // Promotes a card to commander. The previous commander (if any) drops into
+  // the main deck, matching how the other deck sites handle a swap.
+  function makeCommander(entry, zone) {
+    const previous = commander
+    const takeOne = (prev) =>
+      entry.qty > 1
+        ? prev.map((e) => (e.card.id === entry.card.id ? { ...e, qty: e.qty - 1 } : e))
+        : prev.filter((e) => e.card.id !== entry.card.id)
+
+    if (zone === 'main') {
+      setCards((prev) => {
+        const next = takeOne(prev)
+        return previous ? addToList(next, previous, 1) : next
+      })
+    } else {
+      setSideboard(takeOne)
+      if (previous) setCards((prev) => addToList(prev, previous, 1))
+    }
+    setCommander(entry.card)
+    setSelected(null)
+
+    const identitySet = new Set(entry.card.color_identity || [])
+    const mainCards = cards.filter((e) => e.card.id !== entry.card.id).map((e) => e.card)
+    if (previous) mainCards.push(previous)
+    const outside = mainCards.filter((c) => !(c.color_identity || []).every((x) => identitySet.has(x))).length
+    const parts = [`${entry.card.name} is now your commander.`]
+    if (previous) parts.push(`${previous.name} moved to the main deck.`)
+    if (outside > 0) parts.push(`${plural(outside, 'card')} now outside its color identity.`)
+    setNotice(parts.join(' '))
+  }
+
+  function changePrinting(zone, entry, printing) {
+    const list = zone === 'main' ? cards : sideboard
+    if (list.some((e) => e.card.id === printing.id)) {
+      setNotice('That printing is already in this list.')
+      return
+    }
+    const swap = (prev) => prev.map((e) => (e.card.id === entry.card.id ? { ...e, card: printing } : e))
+    if (zone === 'main') setCards(swap)
+    else setSideboard(swap)
+    setSelected({ cardId: printing.id, zone })
+  }
+
   function handleSave() {
     if (!deckName.trim()) {
       setNotice('Give your deck a name before saving.')
       return
     }
-    upsertDeck({ id, name: deckName.trim(), commander, cards, updatedAt: Date.now() })
+    upsertDeck({ id, name: deckName.trim(), commander, cards, sideboard, updatedAt: Date.now() })
     setNotice('Deck saved.')
     navigate(`/builder/${id}`, { replace: true })
   }
@@ -356,6 +446,9 @@ export default function DeckBuilder() {
     return cards.reduce((sum, e) => sum + (cardPrice(e.card) || 0) * e.qty, commanderPrice)
   }, [cards, commander])
   const inDeckIds = useMemo(() => new Set(cards.map((e) => e.card.id)), [cards])
+  const selectedEntry = selected
+    ? (selected.zone === 'main' ? cards : sideboard).find((e) => e.card.id === selected.cardId)
+    : null
 
   function visibleRecs(sectionId, displayCount) {
     const section = recSections[sectionId]
@@ -435,33 +528,39 @@ export default function DeckBuilder() {
                   </h4>
                 )}
                 <ul className="deck-list-group-rows">
-                  {group.entries.map(({ card, qty }) => (
-                    <li key={card.id} className="deck-list-row">
-                      <span className="deck-list-name">{card.name}</span>
-                      <span className="deck-list-type">{card.type_line}</span>
-                      <span className="deck-list-mana">
-                        <ManaCost cost={card.mana_cost} size={15} />
-                      </span>
-                      <span className="deck-list-price">{formatPrice(cardPrice(card)) || '—'}</span>
-                      {isBasicLand(card) ? (
-                        <span className="qty-controls">
-                          <button onClick={() => adjustQty(card.id, -1)}>−</button>
-                          {qty}
-                          <button onClick={() => adjustQty(card.id, 1)}>+</button>
-                        </span>
-                      ) : (
-                        <span className="qty-controls">{qty}</span>
-                      )}
-                      <button className="remove-button" onClick={() => removeCard(card.id)}>
-                        ✕
-                      </button>
-                    </li>
+                  {group.entries.map((entry) => (
+                    <DeckRow
+                      key={entry.card.id}
+                      entry={entry}
+                      onOpen={() => setSelected({ cardId: entry.card.id, zone: 'main' })}
+                      onAdjustQty={adjustQty}
+                      onRemove={removeCard}
+                    />
                   ))}
                 </ul>
               </li>
             ))}
             {cards.length === 0 && <p className="section-hint">No cards yet — search above to add some.</p>}
           </ul>
+          {sideboard.length > 0 && (
+            <div className="deck-sideboard">
+              <h4 className="deck-list-group-header">
+                Sideboard ({sideboard.reduce((sum, e) => sum + e.qty, 0)})
+              </h4>
+              <ul className="deck-list-group-rows">
+                {[...sideboard]
+                  .sort((a, b) => a.card.name.localeCompare(b.card.name))
+                  .map((entry) => (
+                    <DeckRow
+                      key={entry.card.id}
+                      entry={entry}
+                      onOpen={() => setSelected({ cardId: entry.card.id, zone: 'sideboard' })}
+                      onRemove={removeFromSideboard}
+                    />
+                  ))}
+              </ul>
+            </div>
+          )}
         </section>
 
         <section className="deck-stats-panel">
@@ -472,7 +571,7 @@ export default function DeckBuilder() {
           <ManaCurveChart cards={cards} />
           <h2>Color Distribution</h2>
           <ColorDistributionChart cards={cards} />
-          <DeckExport deckName={deckName} commander={commander} cards={cards} />
+          <DeckExport deckName={deckName} commander={commander} cards={cards} sideboard={sideboard} />
         </section>
       </div>
 
@@ -544,6 +643,23 @@ export default function DeckBuilder() {
           })}
         </section>
       )}
+      {selectedEntry && (
+        <CardOptionsModal
+          entry={selectedEntry}
+          zone={selected.zone}
+          canMakeCommander={canBeCommander(selectedEntry.card)}
+          onClose={() => setSelected(null)}
+          onMakeCommander={() => makeCommander(selectedEntry, selected.zone)}
+          onMoveToSideboard={() => moveToSideboard(selectedEntry)}
+          onMoveToMain={() => moveToMain(selectedEntry)}
+          onRemove={() => {
+            if (selected.zone === 'main') removeCard(selectedEntry.card.id)
+            else removeFromSideboard(selectedEntry.card.id)
+            setSelected(null)
+          }}
+          onSelectPrinting={(printing) => changePrinting(selected.zone, selectedEntry, printing)}
+        />
+      )}
     </div>
   )
 }
@@ -602,14 +718,116 @@ function DeckImport({ importing, onImport, onClose }) {
   )
 }
 
-function DeckExport({ deckName, commander, cards }) {
+function DeckRow({ entry: { card, qty }, onOpen, onAdjustQty, onRemove }) {
+  // Row clicks open the card options; the controls inside must not.
+  const stop = (fn) => (e) => {
+    e.stopPropagation()
+    fn()
+  }
+  return (
+    <li className="deck-list-row" onClick={onOpen}>
+      <button type="button" className="deck-list-name deck-list-name-button" title="Card options">
+        {card.name}
+      </button>
+      <span className="deck-list-type">{card.type_line}</span>
+      <span className="deck-list-mana">
+        <ManaCost cost={card.mana_cost} size={15} />
+      </span>
+      <span className="deck-list-price">{formatPrice(cardPrice(card)) || '—'}</span>
+      {isBasicLand(card) && onAdjustQty ? (
+        <span className="qty-controls">
+          <button onClick={stop(() => onAdjustQty(card.id, -1))}>−</button>
+          {qty}
+          <button onClick={stop(() => onAdjustQty(card.id, 1))}>+</button>
+        </span>
+      ) : (
+        <span className="qty-controls">{qty}</span>
+      )}
+      <button className="remove-button" onClick={stop(() => onRemove(card.id))}>
+        ✕
+      </button>
+    </li>
+  )
+}
+
+function CardOptionsModal({
+  entry,
+  zone,
+  canMakeCommander,
+  onClose,
+  onMakeCommander,
+  onMoveToSideboard,
+  onMoveToMain,
+  onRemove,
+  onSelectPrinting,
+}) {
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  const { card, qty } = entry
+  const price = formatPrice(cardPrice(card))
+  const meta = [
+    `${card.set_name} (${(card.set || '').toUpperCase()}) #${card.collector_number}`,
+    price,
+    qty > 1 ? `×${qty}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
+  return (
+    <div className="card-modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="card-modal" role="dialog" aria-modal="true" aria-label={`${card.name} options`}>
+        <button className="card-modal-close" onClick={onClose} aria-label="Close card options">
+          ✕
+        </button>
+        <img className="card-modal-art" src={cardImage(card, 'large')} alt={card.name} />
+        <div className="card-modal-body">
+          <h3>{card.name}</h3>
+          <p className="type-line">{card.type_line}</p>
+          <p className="card-modal-meta">{meta}</p>
+          <div className="card-modal-actions">
+            {canMakeCommander && (
+              <button className="card-modal-action" onClick={onMakeCommander}>
+                Make commander
+              </button>
+            )}
+            {zone === 'main' ? (
+              <button className="card-modal-action" onClick={onMoveToSideboard}>
+                Move to sideboard
+              </button>
+            ) : (
+              <button className="card-modal-action" onClick={onMoveToMain}>
+                Move to main deck
+              </button>
+            )}
+            <button className="card-modal-action danger" onClick={onRemove}>
+              {zone === 'main' ? 'Remove from deck' : 'Remove from sideboard'}
+            </button>
+          </div>
+          <CardPrintings card={card} onSelectPrinting={onSelectPrinting} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DeckExport({ deckName, commander, cards, sideboard }) {
   const [copied, setCopied] = useState(false)
   const text = useMemo(() => {
     const lines = []
     if (commander) lines.push(`1 ${commander.name} *CMDR*`)
     cards.forEach(({ card, qty }) => lines.push(`${qty} ${card.name}`))
+    if (sideboard.length > 0) {
+      lines.push('', 'Sideboard')
+      sideboard.forEach(({ card, qty }) => lines.push(`${qty} ${card.name}`))
+    }
     return lines.join('\n')
-  }, [commander, cards])
+  }, [commander, cards, sideboard])
 
   async function copy() {
     try {
