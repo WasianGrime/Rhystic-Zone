@@ -430,8 +430,7 @@ export default function DeckBuilder() {
       return
     }
     upsertDeck({ id, name: deckName.trim(), commander, cards, sideboard, updatedAt: Date.now() })
-    setNotice('Deck saved.')
-    navigate(`/builder/${id}`, { replace: true })
+    navigate('/decks')
   }
 
   function handleDelete() {

@@ -22,23 +22,34 @@ export function useLocalDecks() {
     saveDecks(decks)
   }, [decks])
 
-  const upsertDeck = useCallback((deck) => {
-    setDecks((prev) => {
-      const idx = prev.findIndex((d) => d.id === deck.id)
-      if (idx === -1) return [...prev, deck]
-      const next = [...prev]
-      next[idx] = deck
-      return next
-    })
+  // Writes go to localStorage immediately (not just via the effect above):
+  // callers like the deck builder navigate away right after saving, which
+  // unmounts this hook's component before a re-render could persist anything.
+  const commit = useCallback((next) => {
+    saveDecks(next)
+    setDecks(next)
   }, [])
 
-  const deleteDeck = useCallback((id) => {
-    setDecks((prev) => prev.filter((d) => d.id !== id))
-  }, [])
+  const upsertDeck = useCallback(
+    (deck) => {
+      const prev = loadDecks()
+      const idx = prev.findIndex((d) => d.id === deck.id)
+      if (idx === -1) return commit([...prev, deck])
+      const next = [...prev]
+      next[idx] = deck
+      commit(next)
+    },
+    [commit]
+  )
+
+  const deleteDeck = useCallback(
+    (id) => commit(loadDecks().filter((d) => d.id !== id)),
+    [commit]
+  )
 
   const getDeck = useCallback((id) => decks.find((d) => d.id === id), [decks])
 
-  const clearAll = useCallback(() => setDecks([]), [])
+  const clearAll = useCallback(() => commit([]), [commit])
 
   return { decks, upsertDeck, deleteDeck, getDeck, clearAll }
 }
