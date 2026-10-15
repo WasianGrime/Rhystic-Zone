@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { cardImage, getRecommendedCards, getCardByName, getBestPrinting, cardPrice, formatPrice } from '../api/scryfall'
+import {
+  cardImage,
+  getRecommendedCards,
+  getCardByName,
+  getBestPrinting,
+  resolveCardRequests,
+  canBeCommander,
+  cardPrice,
+  formatPrice,
+} from '../api/scryfall'
+import { parseDecklist } from '../utils/parseDecklist'
 import { findCombosInDeck, isInfiniteCombo } from '../api/commanderSpellbook'
 import { useLocalDecks } from '../hooks/useLocalDecks'
 import CardSearchBox from '../components/CardSearchBox'
@@ -33,6 +43,10 @@ function newDeckId() {
 
 function isBasicLand(card) {
   return /\bBasic Land\b/.test(card.type_line || '')
+}
+
+function plural(n, word) {
+  return `${n} ${word}${n === 1 ? '' : 's'}`
 }
 
 function primaryType(card) {
@@ -78,6 +92,8 @@ export default function DeckBuilder() {
   const [cards, setCards] = useState(existing?.cards || []) // [{ card, qty }]
   const [notice, setNotice] = useState(null)
   const [sortMode, setSortMode] = useState('type')
+  const [showImport, setShowImport] = useState(Boolean(location.state?.openImport))
+  const [importing, setImporting] = useState(false)
 
   // One entry per REC_SECTIONS id: { label, cards, loading }. Each section is
   // fetched independently so they fill in as their own request resolves
@@ -223,6 +239,101 @@ export default function DeckBuilder() {
     )
   }
 
+  // Adds a pasted decklist to this deck. Resolves to true when something was
+  // imported, so the panel knows it can close.
+  async function handleImport(text) {
+    const { entries, skippedCount } = parseDecklist(text)
+    if (entries.length === 0) {
+      setNotice('Couldn’t find any cards in that list. Paste one card per line, like "1 Sol Ring".')
+      return false
+    }
+
+    setImporting(true)
+    let resolved
+    try {
+      resolved = await resolveCardRequests(entries)
+    } catch {
+      setNotice('Couldn’t reach Scryfall to look up that list. Try again in a moment.')
+      return false
+    } finally {
+      setImporting(false)
+    }
+
+    const missing = entries.filter((_, i) => !resolved[i]).map((e) => e.name)
+
+    let commanderIndex = entries.findIndex((e, i) => e.isCommander && resolved[i])
+    let assumedCommander = false
+    if (commanderIndex === -1) {
+      commanderIndex = entries.findIndex((e, i) => e.maybeCommander && resolved[i] && canBeCommander(resolved[i]))
+      assumedCommander = commanderIndex !== -1
+    }
+    const newCommander = commanderIndex !== -1 ? resolved[commanderIndex] : null
+
+    // Merge by card name so different printings of the same basic land (or a
+    // re-import) collapse into one row. Commander decks are singleton, apart
+    // from basics and "any number of cards named" cards.
+    const merged = new Map(cards.map((e) => [e.card.name, e]))
+    let duplicates = 0
+    entries.forEach((entry, i) => {
+      const card = resolved[i]
+      if (!card || i === commanderIndex) return
+      const stackable = isBasicLand(card) || /any number of cards named/i.test(card.oracle_text || '')
+      const current = merged.get(card.name)
+      if (!current) {
+        merged.set(card.name, { card, qty: stackable ? entry.qty : 1 })
+        if (!stackable) duplicates += entry.qty - 1
+      } else if (stackable) {
+        merged.set(card.name, { ...current, qty: current.qty + entry.qty })
+      } else {
+        duplicates += entry.qty
+      }
+    })
+    const nextCards = [...merged.values()]
+    const added = nextCards.reduce((sum, e) => sum + e.qty, 0) - totalCards
+
+    setCards(nextCards)
+    if (newCommander) {
+      setCommander(newCommander)
+      // The list didn't pin a printing, so quietly upgrade to the best-looking one.
+      if (!entries[commanderIndex].set) {
+        getBestPrinting(newCommander).then((best) => {
+          if (best && best.id !== newCommander.id) setCommander(best)
+        })
+      }
+    }
+    const finalCommander = newCommander || commander
+    if (!deckName.trim() && finalCommander) setDeckName(`${finalCommander.name} Deck`)
+
+    const parts = [`Imported ${plural(added, 'card')}.`]
+    if (newCommander) {
+      parts.push(
+        assumedCommander
+          ? `Using ${newCommander.name} as your commander (it was listed on its own at the top).`
+          : `Commander: ${newCommander.name}.`
+      )
+    } else if (!commander) {
+      parts.push('No commander was marked in that list — set one in the Commander box.')
+    }
+    if (missing.length > 0) {
+      const shown = missing.slice(0, 5).join(', ')
+      const more = missing.length > 5 ? `, +${missing.length - 5} more` : ''
+      parts.push(`Couldn’t find ${plural(missing.length, 'card')}: ${shown}${more}.`)
+    }
+    if (duplicates > 0) {
+      const copies = duplicates === 1 ? '1 duplicate copy' : `${duplicates} duplicate copies`
+      parts.push(`Skipped ${copies} (Commander decks are singleton).`)
+    }
+    if (skippedCount > 0) parts.push(`Left out ${plural(skippedCount, 'sideboard/maybeboard card')}.`)
+    if (finalCommander) {
+      const identitySet = new Set(finalCommander.color_identity || [])
+      const outside = nextCards.filter((e) => !(e.card.color_identity || []).every((c) => identitySet.has(c))).length
+      if (outside > 0) parts.push(`${plural(outside, 'card')} outside ${finalCommander.name}’s color identity.`)
+    }
+    parts.push('Save the deck to keep it.')
+    setNotice(parts.join(' '))
+    return true
+  }
+
   function handleSave() {
     if (!deckName.trim()) {
       setNotice('Give your deck a name before saving.')
@@ -262,6 +373,9 @@ export default function DeckBuilder() {
           onChange={(e) => setDeckName(e.target.value)}
         />
         <div className="deck-builder-actions">
+          <button className="secondary-button" onClick={() => setShowImport((open) => !open)}>
+            Import decklist
+          </button>
           <button className="primary-button" onClick={handleSave}>
             Save deck
           </button>
@@ -274,6 +388,10 @@ export default function DeckBuilder() {
       </div>
 
       {notice && <p className="notice">{notice}</p>}
+
+      {showImport && (
+        <DeckImport importing={importing} onImport={handleImport} onClose={() => setShowImport(false)} />
+      )}
 
       <div className="deck-builder-grid">
         <section className="deck-commander-panel">
@@ -442,6 +560,45 @@ function RecommendationRow({ title, cards, loading, onAdd, grid }) {
         {!loading && cards.length === 0 && <p className="section-hint">No picks found.</p>}
       </div>
     </div>
+  )
+}
+
+function DeckImport({ importing, onImport, onClose }) {
+  const [text, setText] = useState('')
+
+  async function submit() {
+    if (!text.trim() || importing) return
+    const ok = await onImport(text)
+    if (ok) {
+      setText('')
+      onClose()
+    }
+  }
+
+  return (
+    <section className="deck-import-panel">
+      <h2>Import a decklist</h2>
+      <p className="section-hint">
+        Paste a list from Moxfield, Archidekt, MTGGoldfish, EDHREC, Deckstats, or an Arena/MTGO export.
+        Quantities, set codes, and commander tags are picked up automatically, and the cards are added to
+        this deck.
+      </p>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={10}
+        placeholder={`1 Atraxa, Praetors' Voice *CMDR*\n1 Sol Ring\n1 Arcane Signet\n1x Command Tower (cmm) 350\n...`}
+        aria-label="Decklist to import"
+      />
+      <div className="deck-import-actions">
+        <button className="primary-button" onClick={submit} disabled={importing || !text.trim()}>
+          {importing ? 'Importing…' : 'Import'}
+        </button>
+        <button className="secondary-button" onClick={onClose} disabled={importing}>
+          Cancel
+        </button>
+      </div>
+    </section>
   )
 }
 

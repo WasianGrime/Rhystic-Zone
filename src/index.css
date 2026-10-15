@@ -1514,6 +1514,47 @@ button {
   flex: 0 0 110px;
 }
 
+.deck-import-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.deck-import-panel h2 {
+  margin: 0 0 6px;
+}
+
+.deck-import-panel textarea {
+  width: 100%;
+  margin-top: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 10px;
+  font-size: 0.85rem;
+  font-family: 'SF Mono', Consolas, monospace;
+  resize: vertical;
+}
+
+.deck-import-panel textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.deck-import-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.primary-button:disabled,
+.secondary-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .deck-export textarea {
   width: 100%;
   background: var(--bg-elevated);

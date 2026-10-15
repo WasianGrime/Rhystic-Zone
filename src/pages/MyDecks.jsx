@@ -12,9 +12,14 @@ export default function MyDecks() {
           <h1>My Decks</h1>
           <p>Decks are saved locally in this browser.</p>
         </div>
-        <Link to="/builder" className="primary-button">
-          + Add Deck
-        </Link>
+        <div className="deck-builder-actions">
+          <Link to="/builder" state={{ openImport: true }} className="secondary-button">
+            Import Deck
+          </Link>
+          <Link to="/builder" className="primary-button">
+            + Add Deck
+          </Link>
+        </div>
       </div>
 
       {decks.length === 0 && (

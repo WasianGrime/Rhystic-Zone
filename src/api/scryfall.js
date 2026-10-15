@@ -7,9 +7,9 @@ const BASE = 'https://api.scryfall.com'
 let queue = Promise.resolve()
 const MIN_GAP_MS = 100
 
-function throttledFetch(url) {
+function throttledFetch(url, options) {
   const run = queue.then(async () => {
-    const res = await fetch(url)
+    const res = await fetch(url, options)
     await new Promise((r) => setTimeout(r, MIN_GAP_MS))
     return res
   })
@@ -41,6 +41,88 @@ async function get(path) {
 export function getCardByName(name, { fuzzy = true } = {}) {
   const param = fuzzy ? 'fuzzy' : 'exact'
   return get(`/cards/named?${param}=${encodeURIComponent(name)}`)
+}
+
+// Scryfall's bulk lookup takes at most 75 identifiers per request.
+async function fetchCollection(identifiers) {
+  const cards = []
+  for (let i = 0; i < identifiers.length; i += 75) {
+    const res = await throttledFetch(`${BASE}/cards/collection`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifiers: identifiers.slice(i, i + 75) }),
+    })
+    if (!res.ok) throw new Error(`Scryfall request failed (${res.status})`)
+    const body = await res.json()
+    cards.push(...(body.data || []))
+  }
+  return cards
+}
+
+// The bulk endpoint matches a single face name ("Fire") but not the full
+// "Fire // Ice" string, so lookups always use the front face.
+function frontFace(name) {
+  return name.split('//')[0].trim().toLowerCase()
+}
+
+const FUZZY_FALLBACK_LIMIT = 20
+
+// Resolves { name, set?, collector_number? } requests (e.g. parsed decklist
+// lines) to full Scryfall cards, returning an array parallel to `requests`
+// with `null` for anything that couldn't be found. Exact printings are tried
+// first when a set + collector number was given, then name lookups, then a
+// capped number of fuzzy lookups for stragglers such as slightly misspelled
+// names.
+export async function resolveCardRequests(requests) {
+  const results = new Array(requests.length).fill(null)
+
+  const withPrinting = requests.map((_, i) => i).filter((i) => requests[i].set && requests[i].collector_number)
+  if (withPrinting.length > 0) {
+    const cards = await fetchCollection(
+      withPrinting.map((i) => ({
+        set: requests[i].set.toLowerCase(),
+        collector_number: requests[i].collector_number,
+      }))
+    )
+    const byPrinting = new Map(cards.map((c) => [`${c.set}/${c.collector_number}`.toLowerCase(), c]))
+    withPrinting.forEach((i) => {
+      const r = requests[i]
+      const card = byPrinting.get(`${r.set}/${r.collector_number}`.toLowerCase())
+      // Sites don't always agree with Scryfall on collector numbers, so only
+      // trust the printing if it's actually the card the line names.
+      const names = card ? [card.name, ...(card.card_faces || []).map((f) => f.name)] : []
+      results[i] = names.some((n) => frontFace(n) === frontFace(r.name)) ? card : null
+    })
+  }
+
+  const needName = requests.map((_, i) => i).filter((i) => !results[i])
+  if (needName.length > 0) {
+    const names = [...new Set(needName.map((i) => frontFace(requests[i].name)))]
+    const cards = await fetchCollection(names.map((name) => ({ name })))
+    const byName = new Map()
+    cards.forEach((c) => byName.set(c.name.toLowerCase(), c))
+    cards.forEach((c) => {
+      ;(c.card_faces || []).forEach((f) => {
+        const key = f.name.toLowerCase()
+        if (!byName.has(key)) byName.set(key, c)
+      })
+    })
+    needName.forEach((i) => {
+      results[i] = byName.get(frontFace(requests[i].name)) || null
+    })
+  }
+
+  const stragglers = requests.map((_, i) => i).filter((i) => !results[i])
+  const fuzzyCache = new Map()
+  for (const i of stragglers.slice(0, FUZZY_FALLBACK_LIMIT)) {
+    const key = requests[i].name.toLowerCase()
+    if (!fuzzyCache.has(key)) {
+      fuzzyCache.set(key, await getCardByName(requests[i].name).catch(() => null))
+    }
+    results[i] = fuzzyCache.get(key)
+  }
+
+  return results
 }
 
 export function searchCards(query, { order, unique = 'cards', page = 1 } = {}) {
