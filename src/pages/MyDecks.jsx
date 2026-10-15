@@ -44,6 +44,7 @@ export default function MyDecks() {
                 <p className="section-hint">{deck.cards?.length || 0} unique cards</p>
                 <div className="deck-summary-actions">
                   <Link to={`/builder/${deck.id}`}>Edit</Link>
+                  <Link to={`/playtest/${deck.id}`}>Playtest</Link>
                   <button className="danger-button" onClick={() => deleteDeck(deck.id)}>
                     Delete
                   </button>

@@ -465,6 +465,14 @@ export default function DeckBuilder() {
           onChange={(e) => setDeckName(e.target.value)}
         />
         <div className="deck-builder-actions">
+          <button
+            className="secondary-button"
+            onClick={() => navigate('/playtest', { state: { deck: { name: deckName, commander, cards } } })}
+            disabled={cards.length === 0 && !commander}
+            title="Goldfish this deck on a playmat"
+          >
+            Playtest
+          </button>
           <button className="secondary-button" onClick={() => setShowImport((open) => !open)}>
             Import decklist
           </button>

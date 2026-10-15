@@ -8,6 +8,7 @@ import MyDecks from './pages/MyDecks'
 import SearchResults from './pages/SearchResults'
 import News from './pages/News'
 import Shop from './pages/Shop'
+import Playtest from './pages/Playtest'
 
 export default function App() {
   return (
@@ -20,6 +21,8 @@ export default function App() {
           <Route path="/commander/:name" element={<CommanderDetail />} />
           <Route path="/builder" element={<DeckBuilder />} />
           <Route path="/builder/:deckId" element={<DeckBuilder />} />
+          <Route path="/playtest" element={<Playtest />} />
+          <Route path="/playtest/:deckId" element={<Playtest />} />
           <Route path="/decks" element={<MyDecks />} />
           <Route path="/search" element={<SearchResults />} />
           <Route path="/news" element={<News />} />

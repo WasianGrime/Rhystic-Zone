@@ -59,6 +59,10 @@ async function fetchCollection(identifiers) {
   return cards
 }
 
+export function getCardsByIds(ids) {
+  return ids.length === 0 ? Promise.resolve([]) : fetchCollection(ids.map((id) => ({ id })))
+}
+
 // The bulk endpoint matches a single face name ("Fire") but not the full
 // "Fire // Ice" string, so lookups always use the front face.
 function frontFace(name) {
