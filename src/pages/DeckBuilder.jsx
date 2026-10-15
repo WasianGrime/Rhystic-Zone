@@ -22,6 +22,7 @@ import CardTile from '../components/CardTile'
 import BuyLinks from '../components/BuyLinks'
 import ComboCard from '../components/ComboCard'
 import CardPrintings from '../components/CardPrintings'
+import CardStats from '../components/CardStats'
 import { PLAYSTYLE_FILTERS } from '../data/playstyles'
 
 const TYPE_ORDER = ['Creature', 'Planeswalker', 'Battle', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Land']
@@ -777,14 +778,6 @@ function CardOptionsModal({
   }, [onClose])
 
   const { card, qty } = entry
-  const price = formatPrice(cardPrice(card))
-  const meta = [
-    `${card.set_name} (${(card.set || '').toUpperCase()}) #${card.collector_number}`,
-    price,
-    qty > 1 ? `×${qty}` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
 
   return (
     <div className="card-modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -794,9 +787,10 @@ function CardOptionsModal({
         </button>
         <img className="card-modal-art" src={cardImage(card, 'large')} alt={card.name} />
         <div className="card-modal-body">
-          <h3>{card.name}</h3>
-          <p className="type-line">{card.type_line}</p>
-          <p className="card-modal-meta">{meta}</p>
+          <h3>
+            {card.name}
+            {qty > 1 && <span className="card-modal-qty"> &times;{qty}</span>}
+          </h3>
           <div className="card-modal-actions">
             {canMakeCommander && (
               <button className="card-modal-action" onClick={onMakeCommander}>
@@ -816,6 +810,7 @@ function CardOptionsModal({
               {zone === 'main' ? 'Remove from deck' : 'Remove from sideboard'}
             </button>
           </div>
+          <CardStats card={card} />
           <CardPrintings card={card} onSelectPrinting={onSelectPrinting} />
         </div>
       </div>
