@@ -3,7 +3,7 @@
 // simple undo history of snapshots.
 //
 // A game is { library, hand, battlefield, graveyard, exile, command, life,
-// poison, tax, turn, mulligans, bottomNeeded, log }. Each zone is an array of
+// poison, turn, mulligans, bottomNeeded, log }. Each zone is an array of
 // card instances; the top of the library is index 0 and the top of the
 // graveyard/exile is the last element.
 
@@ -64,7 +64,9 @@ export function buildGame(deck) {
   deck.cards.forEach(({ card, qty }) => {
     for (let i = 0; i < qty; i++) library.push(makeInstance(card))
   })
-  const command = deck.commander ? [makeInstance(deck.commander, { isCommander: true })] : []
+  const command = [deck.commander, deck.partner]
+    .filter(Boolean)
+    .map((card) => makeInstance(card, { isCommander: true, casts: 0 }))
   const start = {
     library: shuffle(library),
     hand: [],
@@ -74,7 +76,6 @@ export function buildGame(deck) {
     command,
     life: STARTING_LIFE,
     poison: 0,
-    tax: 0,
     turn: 1,
     mulligans: 0,
     bottomNeeded: 0,
@@ -104,6 +105,10 @@ export function findInstance(g, uid) {
   return null
 }
 
+export function commanderInstances(g) {
+  return ZONES.flatMap((zone) => g[zone]).filter((i) => i.isCommander)
+}
+
 export function updateInstance(g, uid, patch) {
   const found = findInstance(g, uid)
   if (!found) return g
@@ -115,7 +120,8 @@ export function updateInstance(g, uid, patch) {
 
 // Moves a card between zones. `position` ('top' | 'bottom') applies to the
 // library; x/y place a card on the battlefield. Tokens vanish when they leave
-// the battlefield, and casting the commander bumps the commander tax.
+// the battlefield, and casting a commander from the command zone bumps that
+// commander's cast count (which drives its tax).
 export function moveCard(g, uid, to, { position = 'top', x, y } = {}) {
   const found = findInstance(g, uid)
   if (!found) return g
@@ -127,9 +133,8 @@ export function moveCard(g, uid, to, { position = 'top', x, y } = {}) {
 
   if (to === 'battlefield') {
     const spot = x !== undefined && y !== undefined ? { x, y } : from === 'battlefield' ? { x: inst.x, y: inst.y } : autoPlace(next.battlefield, inst.card)
-    next = { ...next, battlefield: [...next.battlefield, { ...inst, ...spot }] }
-    if (inst.isCommander && from === 'command') next = { ...next, tax: next.tax + 1 }
-    return next
+    const casts = inst.isCommander && from === 'command' ? (inst.casts || 0) + 1 : inst.casts
+    return { ...next, battlefield: [...next.battlefield, { ...inst, ...spot, casts }] }
   }
 
   const reset = { ...inst, tapped: false, faceDown: false, flipped: false, counters: 0, x: undefined, y: undefined }

@@ -6,6 +6,7 @@ import {
   addToken,
   applyScry,
   buildGame,
+  commanderInstances,
   copyAsToken,
   draw,
   findInstance,
@@ -97,7 +98,7 @@ export default function Playtest() {
   const ghostRef = useRef(null)
 
   const deckCards = useMemo(
-    () => (deck ? [...(deck.commander ? [deck.commander] : []), ...deck.cards.map((e) => e.card)] : []),
+    () => (deck ? [deck.commander, deck.partner, ...deck.cards.map((e) => e.card)].filter(Boolean) : []),
     [deck]
   )
 
@@ -484,13 +485,18 @@ export default function Playtest() {
         <section className="pt-section">
           <StatRow label="Life" value={game.life} steps={[-5, -1, 1, 5]} onStep={(d) => commit((g) => ({ ...g, life: g.life + d }))} />
           <StatRow label="Poison" value={game.poison} steps={[-1, 1]} onStep={(d) => commit((g) => ({ ...g, poison: Math.max(0, g.poison + d) }))} />
-          <StatRow
-            label="Cmdr casts"
-            value={game.tax}
-            hint={game.tax > 0 ? `tax +${game.tax * 2}` : null}
-            steps={[-1, 1]}
-            onStep={(d) => commit((g) => ({ ...g, tax: Math.max(0, g.tax + d) }))}
-          />
+          {commanderInstances(game).map((cmdr, _i, all) => (
+            <StatRow
+              key={cmdr.uid}
+              label={all.length > 1 ? `${cmdr.card.name.split(',')[0]} casts` : 'Cmdr casts'}
+              value={cmdr.casts || 0}
+              hint={cmdr.casts > 0 ? `tax +${cmdr.casts * 2}` : null}
+              steps={[-1, 1]}
+              onStep={(d) =>
+                commit((g) => updateInstance(g, cmdr.uid, (i) => ({ casts: Math.max(0, (i.casts || 0) + d) })))
+              }
+            />
+          ))}
           <div className="pt-stat">
             <span className="pt-stat-label">Turn</span>
             <span className="pt-stat-value">{game.turn}</span>

@@ -11,6 +11,7 @@ import {
   formatPrice,
 } from '../api/scryfall'
 import { parseDecklist } from '../utils/parseDecklist'
+import { canPartner, combinedIdentity, hasPartnerAbility } from '../utils/commanders'
 import { findCombosInDeck, isInfiniteCombo } from '../api/commanderSpellbook'
 import { useLocalDecks } from '../hooks/useLocalDecks'
 import CardSearchBox from '../components/CardSearchBox'
@@ -49,6 +50,11 @@ function isBasicLand(card) {
 
 function plural(n, word) {
   return `${n} ${word}${n === 1 ? '' : 's'}`
+}
+
+function countOutsideIdentity(cards, identityColors) {
+  const allowed = new Set(identityColors)
+  return cards.filter((c) => !(c.color_identity || []).every((x) => allowed.has(x))).length
 }
 
 // Basics and "any number of cards named" cards can exceed one copy.
@@ -107,6 +113,7 @@ export default function DeckBuilder() {
   const [id] = useState(existing?.id || newDeckId())
   const [deckName, setDeckName] = useState(existing?.name || '')
   const [commander, setCommander] = useState(existing?.commander || passedCommander || null)
+  const [partner, setPartner] = useState(existing?.partner || null)
   const [cards, setCards] = useState(existing?.cards || []) // [{ card, qty }]
   const [notice, setNotice] = useState(null)
   const [sortMode, setSortMode] = useState('type')
@@ -126,7 +133,9 @@ export default function DeckBuilder() {
     }
   }, [passedCommander, existing, deckName])
 
-  const identity = useMemo(() => new Set(commander?.color_identity || []), [commander])
+  const identityColors = useMemo(() => combinedIdentity(commander, partner), [commander, partner])
+  const identity = useMemo(() => new Set(identityColors), [identityColors])
+  const commanderNames = [commander?.name, partner?.name].filter(Boolean).join(' & ')
 
   useEffect(() => {
     if (!commander) {
@@ -141,7 +150,10 @@ export default function DeckBuilder() {
       }, {})
     )
     REC_SECTIONS.forEach((s) => {
-      getRecommendedCards(commander, { playstyles: s.query ? [s.query] : [], limit: REC_POOL_SIZE })
+      getRecommendedCards(
+        { ...commander, color_identity: identityColors },
+        { playstyles: s.query ? [s.query] : [], limit: REC_POOL_SIZE }
+      )
         .then((data) => {
           if (cancelled) return
           setRecSections((prev) => ({ ...prev, [s.id]: { label: s.label, cards: data, loading: false } }))
@@ -154,7 +166,7 @@ export default function DeckBuilder() {
     return () => {
       cancelled = true
     }
-  }, [commander])
+  }, [commander, identityColors])
 
   const [completeCombos, setCompleteCombos] = useState([])
   const [almostCombos, setAlmostCombos] = useState([])
@@ -169,7 +181,10 @@ export default function DeckBuilder() {
     let cancelled = false
     setLoadingCombos(true)
     const handle = setTimeout(() => {
-      findCombosInDeck([commander.name], cards.map((e) => e.card.name))
+      findCombosInDeck(
+        [commander.name, partner?.name].filter(Boolean),
+        cards.map((e) => e.card.name)
+      )
         .then((results) => {
           if (cancelled) return
           const complete = (results.included || []).filter(isInfiniteCombo)
@@ -194,7 +209,7 @@ export default function DeckBuilder() {
       cancelled = true
       clearTimeout(handle)
     }
-  }, [commander, cards])
+  }, [commander, partner, cards])
 
   async function addMissingComboCard(name) {
     try {
@@ -221,14 +236,38 @@ export default function DeckBuilder() {
       setNotice(null)
     }
     setCommander(card)
+    if (partner && !canPartner(card, partner)) {
+      setCards((prev) => addToList(prev, partner, 1))
+      setPartner(null)
+      setNotice(`${partner.name} can\u2019t partner with ${card.name}, so it moved to the main deck.`)
+    }
     // Quietly upgrade to the best-looking printing once it's known.
     const best = await getBestPrinting(card)
     if (best && best.id !== card.id) setCommander(best)
   }
 
+  async function handlePickPartner(card) {
+    if (!commander) return
+    if (!canPartner(commander, card)) {
+      setNotice(`${card.name} can\u2019t be paired with ${commander.name} as a second commander.`)
+      return
+    }
+    const previous = partner
+    // It's a commander now, so pull it out of the deck lists.
+    setCards((prev) => {
+      const next = prev.filter((e) => e.card.name !== card.name)
+      return previous ? addToList(next, previous, 1) : next
+    })
+    setSideboard((prev) => prev.filter((e) => e.card.name !== card.name))
+    setPartner(card)
+    setNotice(null)
+    const best = await getBestPrinting(card)
+    if (best && best.id !== card.id) setPartner(best)
+  }
+
   function addCard(card) {
     if (!cardFitsIdentity(card)) {
-      setNotice(`${card.name} is outside ${commander.name}'s color identity — not added.`)
+      setNotice(`${card.name} is outside ${commanderNames}'s color identity — not added.`)
       return
     }
     setCards((prev) => {
@@ -262,32 +301,69 @@ export default function DeckBuilder() {
   // Adds a pasted decklist to this deck. Resolves to true when something was
   // imported, so the panel knows it can close.
   async function handleImport(text) {
-    const { entries, skippedCount } = parseDecklist(text)
+    const { entries, sideEntries, skippedCount } = parseDecklist(text)
     if (entries.length === 0) {
       setNotice('Couldn’t find any cards in that list. Paste one card per line, like "1 Sol Ring".')
       return false
     }
 
+    // With nothing marked, a Sideboard section of one or two cards is a
+    // commander candidate (Moxfield's MTGO export lists commanders there).
+    const hasMarked = entries.some((e) => e.isCommander)
+    const sideCandidates =
+      !hasMarked && sideEntries.length > 0 && sideEntries.length <= 2 && sideEntries.every((e) => e.qty === 1)
+        ? sideEntries
+        : []
+
     setImporting(true)
-    let resolved
+    let lookedUp
     try {
-      resolved = await resolveCardRequests(entries)
+      lookedUp = await resolveCardRequests([...entries, ...sideCandidates])
     } catch {
       setNotice('Couldn’t reach Scryfall to look up that list. Try again in a moment.')
       return false
     } finally {
       setImporting(false)
     }
+    const resolved = lookedUp.slice(0, entries.length)
+    const sideResolved = lookedUp.slice(entries.length)
 
     const missing = entries.filter((_, i) => !resolved[i]).map((e) => e.name)
 
-    let commanderIndex = entries.findIndex((e, i) => e.isCommander && resolved[i])
-    let assumedCommander = false
-    if (commanderIndex === -1) {
-      commanderIndex = entries.findIndex((e, i) => e.maybeCommander && resolved[i] && canBeCommander(resolved[i]))
-      assumedCommander = commanderIndex !== -1
+    // Commanders: explicitly marked cards win (up to two). Otherwise look for
+    // a lone commander, or a compatible pair, in the places other sites put
+    // them: a sideboard section, then the bottom of the list, then the top.
+    const mainItems = entries.map((entry, index) => ({ entry, index, card: resolved[index] }))
+    let chosen = mainItems.filter((it) => it.entry.isCommander && it.card).slice(0, 2)
+    let assumedWhere = null
+    if (chosen.length === 0) {
+      const sources = [
+        {
+          where: 'in a sideboard section',
+          items: sideCandidates.map((entry, k) => ({ entry, index: -1, card: sideResolved[k] })),
+        },
+        { where: 'on its own at the bottom', items: mainItems.filter((it) => it.entry.blockRole === 'last') },
+        { where: 'on its own at the top', items: mainItems.filter((it) => it.entry.blockRole === 'first') },
+      ]
+      for (const source of sources) {
+        const usable = source.items.filter((it) => it.card)
+        let picks = []
+        if (usable.length === 2 && canPartner(usable[0].card, usable[1].card)) picks = usable
+        else {
+          // Two unrelated commanders would be ambiguous, so only take a single one.
+          const legal = usable.filter((it) => canBeCommander(it.card))
+          if (legal.length === 1) picks = legal
+        }
+        if (picks.length > 0) {
+          chosen = picks
+          assumedWhere = source.where
+          break
+        }
+      }
     }
-    const newCommander = commanderIndex !== -1 ? resolved[commanderIndex] : null
+    const newCommander = chosen[0]?.card || null
+    const newPartner = chosen[1]?.card || null
+    const chosenIndexes = new Set(chosen.map((it) => it.index))
 
     // Merge by card name so different printings of the same basic land (or a
     // re-import) collapse into one row. Commander decks are singleton, apart
@@ -296,7 +372,7 @@ export default function DeckBuilder() {
     let duplicates = 0
     entries.forEach((entry, i) => {
       const card = resolved[i]
-      if (!card || i === commanderIndex) return
+      if (!card || chosenIndexes.has(i)) return
       const stackable = isStackable(card)
       const current = merged.get(card.name)
       if (!current) {
@@ -314,23 +390,29 @@ export default function DeckBuilder() {
     setCards(nextCards)
     if (newCommander) {
       setCommander(newCommander)
-      // The list didn't pin a printing, so quietly upgrade to the best-looking one.
-      if (!entries[commanderIndex].set) {
-        getBestPrinting(newCommander).then((best) => {
-          if (best && best.id !== newCommander.id) setCommander(best)
+      setPartner(newPartner)
+      // Lines that don't pin a printing quietly get the best-looking one.
+      chosen.forEach((it, k) => {
+        if (it.entry.set) return
+        getBestPrinting(it.card).then((best) => {
+          if (best && best.id !== it.card.id) (k === 0 ? setCommander : setPartner)(best)
         })
-      }
+      })
     }
     const finalCommander = newCommander || commander
+    const finalPartner = newCommander ? newPartner : partner
     if (!deckName.trim() && finalCommander) setDeckName(`${finalCommander.name} Deck`)
 
     const parts = [`Imported ${plural(added, 'card')}.`]
     if (newCommander) {
-      parts.push(
-        assumedCommander
-          ? `Using ${newCommander.name} as your commander (it was listed on its own at the top).`
-          : `Commander: ${newCommander.name}.`
-      )
+      const names = newPartner ? `${newCommander.name} and ${newPartner.name}` : newCommander.name
+      if (assumedWhere) {
+        parts.push(
+          `Using ${names} as your ${newPartner ? 'partner commanders' : 'commander'} (listed ${newPartner ? assumedWhere.replace('on its own', 'together') : assumedWhere}).`
+        )
+      } else {
+        parts.push(`${newPartner ? 'Commanders' : 'Commander'}: ${names}.`)
+      }
     } else if (!commander) {
       parts.push('No commander was marked in that list — set one in the Commander box.')
     }
@@ -343,11 +425,16 @@ export default function DeckBuilder() {
       const copies = duplicates === 1 ? '1 duplicate copy' : `${duplicates} duplicate copies`
       parts.push(`Skipped ${copies} (Commander decks are singleton).`)
     }
-    if (skippedCount > 0) parts.push(`Left out ${plural(skippedCount, 'sideboard/maybeboard card')}.`)
+    const claimedFromSideboard = chosen.filter((it) => it.index === -1).length
+    const leftOut = skippedCount - claimedFromSideboard
+    if (leftOut > 0) parts.push(`Left out ${plural(leftOut, 'sideboard/maybeboard card')}.`)
     if (finalCommander) {
-      const identitySet = new Set(finalCommander.color_identity || [])
-      const outside = nextCards.filter((e) => !(e.card.color_identity || []).every((c) => identitySet.has(c))).length
-      if (outside > 0) parts.push(`${plural(outside, 'card')} outside ${finalCommander.name}’s color identity.`)
+      const outside = countOutsideIdentity(
+        nextCards.map((e) => e.card),
+        combinedIdentity(finalCommander, finalPartner)
+      )
+      const label = finalPartner ? `${finalCommander.name} & ${finalPartner.name}` : finalCommander.name
+      if (outside > 0) parts.push(`${plural(outside, 'card')} outside ${label}’s color identity.`)
     }
     parts.push('Save the deck to keep it.')
     setNotice(parts.join(' '))
@@ -367,7 +454,7 @@ export default function DeckBuilder() {
 
   function moveToMain(entry) {
     if (!cardFitsIdentity(entry.card)) {
-      setNotice(`${entry.card.name} is outside ${commander.name}’s color identity — it stays in the sideboard.`)
+      setNotice(`${entry.card.name} is outside ${commanderNames}’s color identity — it stays in the sideboard.`)
       setSelected(null)
       return
     }
@@ -382,10 +469,37 @@ export default function DeckBuilder() {
     )
   }
 
-  // Promotes a card to commander. The previous commander (if any) drops into
-  // the main deck, matching how the other deck sites handle a swap.
+  // Promotes a card to commander. Any previous commanders drop into the main
+  // deck, matching how the other deck sites handle a swap.
   function makeCommander(entry, zone) {
-    const previous = commander
+    const previous = [commander, partner].filter(Boolean)
+    const takeOne = (prev) =>
+      entry.qty > 1
+        ? prev.map((e) => (e.card.id === entry.card.id ? { ...e, qty: e.qty - 1 } : e))
+        : prev.filter((e) => e.card.id !== entry.card.id)
+    const addPrevious = (list) => previous.reduce((acc, c) => addToList(acc, c, 1), list)
+
+    if (zone === 'main') {
+      setCards((prev) => addPrevious(takeOne(prev)))
+    } else {
+      setSideboard(takeOne)
+      if (previous.length > 0) setCards((prev) => addPrevious(prev))
+    }
+    setCommander(entry.card)
+    setPartner(null)
+    setSelected(null)
+
+    const mainCards = cards.filter((e) => e.card.id !== entry.card.id).map((e) => e.card)
+    const outside = countOutsideIdentity([...mainCards, ...previous], entry.card.color_identity || [])
+    const parts = [`${entry.card.name} is now your commander.`]
+    if (previous.length > 0) parts.push(`${previous.map((c) => c.name).join(' and ')} moved to the main deck.`)
+    if (outside > 0) parts.push(`${plural(outside, 'card')} now outside its color identity.`)
+    setNotice(parts.join(' '))
+  }
+
+  // Adds a card as the second commander (Partner, Background, etc.).
+  function makePartner(entry, zone) {
+    const previous = partner
     const takeOne = (prev) =>
       entry.qty > 1
         ? prev.map((e) => (e.card.id === entry.card.id ? { ...e, qty: e.qty - 1 } : e))
@@ -400,16 +514,15 @@ export default function DeckBuilder() {
       setSideboard(takeOne)
       if (previous) setCards((prev) => addToList(prev, previous, 1))
     }
-    setCommander(entry.card)
+    setPartner(entry.card)
     setSelected(null)
 
-    const identitySet = new Set(entry.card.color_identity || [])
     const mainCards = cards.filter((e) => e.card.id !== entry.card.id).map((e) => e.card)
     if (previous) mainCards.push(previous)
-    const outside = mainCards.filter((c) => !(c.color_identity || []).every((x) => identitySet.has(x))).length
-    const parts = [`${entry.card.name} is now your commander.`]
+    const outside = countOutsideIdentity(mainCards, combinedIdentity(commander, entry.card))
+    const parts = [`${entry.card.name} is now your partner commander alongside ${commander.name}.`]
     if (previous) parts.push(`${previous.name} moved to the main deck.`)
-    if (outside > 0) parts.push(`${plural(outside, 'card')} now outside its color identity.`)
+    if (outside > 0) parts.push(`${plural(outside, 'card')} now outside their color identity.`)
     setNotice(parts.join(' '))
   }
 
@@ -430,7 +543,7 @@ export default function DeckBuilder() {
       setNotice('Give your deck a name before saving.')
       return
     }
-    upsertDeck({ id, name: deckName.trim(), commander, cards, sideboard, updatedAt: Date.now() })
+    upsertDeck({ id, name: deckName.trim(), commander, partner, cards, sideboard, updatedAt: Date.now() })
     navigate('/decks')
   }
 
@@ -442,10 +555,13 @@ export default function DeckBuilder() {
   const totalCards = cards.reduce((sum, e) => sum + e.qty, 0)
   const groupedCards = useMemo(() => groupCards(cards, sortMode), [cards, sortMode])
   const totalValue = useMemo(() => {
-    const commanderPrice = commander ? cardPrice(commander) || 0 : 0
+    const commanderPrice = (commander ? cardPrice(commander) || 0 : 0) + (partner ? cardPrice(partner) || 0 : 0)
     return cards.reduce((sum, e) => sum + (cardPrice(e.card) || 0) * e.qty, commanderPrice)
-  }, [cards, commander])
-  const inDeckIds = useMemo(() => new Set(cards.map((e) => e.card.id)), [cards])
+  }, [cards, commander, partner])
+  const inDeckIds = useMemo(
+    () => new Set([...cards.map((e) => e.card.id), ...(partner ? [partner.id] : [])]),
+    [cards, partner]
+  )
   const selectedEntry = selected
     ? (selected.zone === 'main' ? cards : sideboard).find((e) => e.card.id === selected.cardId)
     : null
@@ -468,7 +584,7 @@ export default function DeckBuilder() {
         <div className="deck-builder-actions">
           <button
             className="secondary-button"
-            onClick={() => navigate('/playtest', { state: { deck: { name: deckName, commander, cards } } })}
+            onClick={() => navigate('/playtest', { state: { deck: { name: deckName, commander, partner, cards } } })}
             disabled={cards.length === 0 && !commander}
             title="Goldfish this deck on a playmat"
           >
@@ -496,23 +612,21 @@ export default function DeckBuilder() {
 
       <div className="deck-builder-grid">
         <section className="deck-commander-panel">
-          <h2>Commander</h2>
+          <h2>{partner ? 'Commanders' : 'Commander'}</h2>
           {commander ? (
-            <div className="deck-commander-card">
-              <img src={cardImage(commander, 'large')} alt={commander.name} />
-              <div className="deck-commander-info">
-                <h3>{commander.name}</h3>
-                <ColorPips colors={commander.color_identity} />
-                {formatPrice(cardPrice(commander)) && (
-                  <p className="card-price-line small">{formatPrice(cardPrice(commander))}</p>
-                )}
-                <BuyLinks card={commander} />
-              </div>
+            <div className={`deck-commanders ${partner ? 'has-partner' : ''}`}>
+              <CommanderCard card={commander} />
+              {partner && <CommanderCard card={partner} onRemove={() => setPartner(null)} />}
             </div>
           ) : (
             <p className="section-hint">Search for a legendary creature to set as your commander.</p>
           )}
           <CardSearchBox placeholder="Set commander…" onSelect={handlePickCommander} />
+          {commander && !partner && hasPartnerAbility(commander) && (
+            <div className="deck-partner-search">
+              <CardSearchBox placeholder="Add partner / background…" onSelect={handlePickPartner} />
+            </div>
+          )}
         </section>
 
         <section className="deck-list-panel">
@@ -579,7 +693,7 @@ export default function DeckBuilder() {
           <ManaCurveChart cards={cards} />
           <h2>Color Distribution</h2>
           <ColorDistributionChart cards={cards} />
-          <DeckExport deckName={deckName} commander={commander} cards={cards} sideboard={sideboard} />
+          <DeckExport deckName={deckName} commander={commander} partner={partner} cards={cards} sideboard={sideboard} />
         </section>
       </div>
 
@@ -627,7 +741,7 @@ export default function DeckBuilder() {
 
       {commander && (
         <section className="deck-recommendations">
-          <h2>Recommended for {commander.name}</h2>
+          <h2>Recommended for {commanderNames}</h2>
           <p className="section-hint">
             Curated like EDHREC — top overall picks first, then cards grouped by common playstyles for
             this commander. Add one and the row pulls in the next best pick for that group.
@@ -656,8 +770,10 @@ export default function DeckBuilder() {
           entry={selectedEntry}
           zone={selected.zone}
           canMakeCommander={canBeCommander(selectedEntry.card)}
+          canAddPartner={Boolean(commander) && canPartner(commander, selectedEntry.card)}
           onClose={() => setSelected(null)}
           onMakeCommander={() => makeCommander(selectedEntry, selected.zone)}
+          onAddPartner={() => makePartner(selectedEntry, selected.zone)}
           onMoveToSideboard={() => moveToSideboard(selectedEntry)}
           onMoveToMain={() => moveToMain(selectedEntry)}
           onRemove={() => {
@@ -726,6 +842,25 @@ function DeckImport({ importing, onImport, onClose }) {
   )
 }
 
+function CommanderCard({ card, onRemove }) {
+  return (
+    <div className="deck-commander-card">
+      <img src={cardImage(card, 'large')} alt={card.name} />
+      <div className="deck-commander-info">
+        <h3>{card.name}</h3>
+        <ColorPips colors={card.color_identity} />
+        {formatPrice(cardPrice(card)) && <p className="card-price-line small">{formatPrice(cardPrice(card))}</p>}
+        <BuyLinks card={card} />
+        {onRemove && (
+          <button className="deck-partner-remove" onClick={onRemove}>
+            Remove partner
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function DeckRow({ entry: { card, qty }, onOpen, onAdjustQty, onRemove }) {
   // Row clicks open the card options; the controls inside must not.
   const stop = (fn) => (e) => {
@@ -762,8 +897,10 @@ function CardOptionsModal({
   entry,
   zone,
   canMakeCommander,
+  canAddPartner,
   onClose,
   onMakeCommander,
+  onAddPartner,
   onMoveToSideboard,
   onMoveToMain,
   onRemove,
@@ -797,6 +934,11 @@ function CardOptionsModal({
                 Make commander
               </button>
             )}
+            {canAddPartner && (
+              <button className="card-modal-action" onClick={onAddPartner}>
+                Add as partner commander
+              </button>
+            )}
             {zone === 'main' ? (
               <button className="card-modal-action" onClick={onMoveToSideboard}>
                 Move to sideboard
@@ -818,18 +960,19 @@ function CardOptionsModal({
   )
 }
 
-function DeckExport({ deckName, commander, cards, sideboard }) {
+function DeckExport({ deckName, commander, partner, cards, sideboard }) {
   const [copied, setCopied] = useState(false)
   const text = useMemo(() => {
     const lines = []
     if (commander) lines.push(`1 ${commander.name} *CMDR*`)
+    if (partner) lines.push(`1 ${partner.name} *CMDR*`)
     cards.forEach(({ card, qty }) => lines.push(`${qty} ${card.name}`))
     if (sideboard.length > 0) {
       lines.push('', 'Sideboard')
       sideboard.forEach(({ card, qty }) => lines.push(`${qty} ${card.name}`))
     }
     return lines.join('\n')
-  }, [commander, cards, sideboard])
+  }, [commander, partner, cards, sideboard])
 
   async function copy() {
     try {

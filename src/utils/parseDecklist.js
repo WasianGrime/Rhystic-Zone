@@ -2,12 +2,16 @@
 // MTGGoldfish, EDHREC, Deckstats, MTG Arena/MTGO exports, plain "1 Card"
 // lists) into { entries, skippedCount }.
 //
-// Each entry: { qty, name, set, collector_number, isCommander, maybeCommander }
+// Each entry: { qty, name, set, collector_number, isCommander, blockRole }
 //  - isCommander: explicitly marked (a "Commander" section, *CMDR*,
 //    [Commander{top}], #!Commander).
-//  - maybeCommander: nothing was marked, but this card sits alone in the
-//    first blank-line-separated block above the rest of the list — the
-//    layout MTGGoldfish and Moxfield exports use for the commander.
+//  - blockRole: nothing needs to be marked for this to be set. 'first' or
+//    'last' means the card sits in a block of one or two cards at the top or
+//    bottom of the list, separated from the rest by a blank line — how
+//    MTGGoldfish (top) and Moxfield (bottom) lay out their commanders.
+//
+// sideEntries are the cards from Sideboard sections (Moxfield's MTGO export
+// lists commanders there); callers use them only to look for commanders.
 
 const SECTION_HEADERS = {
   commander: 'commander',
@@ -17,8 +21,8 @@ const SECTION_HEADERS = {
   maindeck: 'main',
   'main deck': 'main',
   mainboard: 'main',
-  sideboard: 'skip',
-  side: 'skip',
+  sideboard: 'sideboard',
+  side: 'sideboard',
   maybeboard: 'skip',
   maybe: 'skip',
   considering: 'skip',
@@ -39,6 +43,7 @@ function headerSection(line) {
 
 export function parseDecklist(text) {
   const entries = []
+  const sideEntries = []
   let skippedCount = 0
   let section = 'main'
   let group = 0
@@ -62,16 +67,20 @@ export function parseDecklist(text) {
       continue
     }
 
-    if (/^SB:\s*/i.test(line)) {
-      skippedCount += 1
-      continue
+    let lineSection = section
+    let body = line
+    const sbPrefix = line.match(/^SB:\s*(.*)$/i)
+    if (sbPrefix) {
+      lineSection = 'sideboard'
+      body = sbPrefix[1]
+      if (!body) continue
     }
 
-    const match = line.match(/^(?:(\d+)\s*[xX]?\s+)?(.+)$/)
+    const match = body.match(/^(?:(\d+)\s*[xX]?\s+)?(.+)$/)
     if (!match) continue
     const qty = match[1] ? parseInt(match[1], 10) : 1
     let rest = match[2]
-    let isCommander = section === 'commander'
+    let isCommander = lineSection === 'commander'
 
     // Archidekt categories: [Commander{top}], [Ramp]
     rest = rest.replace(/\[([^\]]*)\]/g, (_, tag) => {
@@ -104,9 +113,14 @@ export function parseDecklist(text) {
     }
     if (!name) continue
 
-    if (section === 'ignore') continue
-    if (section === 'skip') {
+    if (lineSection === 'ignore') continue
+    if (lineSection === 'skip') {
       skippedCount += qty
+      continue
+    }
+    if (lineSection === 'sideboard') {
+      skippedCount += qty
+      sideEntries.push({ qty, name, set, collector_number, isCommander: false, blockRole: null })
       continue
     }
 
@@ -114,19 +128,26 @@ export function parseDecklist(text) {
     groupHasEntries = true
   }
 
-  const anyMarked = entries.some((e) => e.isCommander)
-  const firstGroup = entries.filter((e) => e.group === 0)
-  const looksLikeCommanderBlock =
-    !anyMarked && firstGroup.length === 1 && firstGroup[0].qty === 1 && entries.length > 1
+  // A block of one or two single cards at the very top or bottom of the list.
+  const lastGroup = entries.reduce((max, e) => Math.max(max, e.group), 0)
+  function smallBlock(groupIndex) {
+    if (lastGroup === 0) return false
+    const block = entries.filter((e) => e.group === groupIndex)
+    return block.length > 0 && block.length <= 2 && block.every((e) => e.qty === 1)
+  }
+  const firstIsSmall = smallBlock(0)
+  const lastIsSmall = smallBlock(lastGroup)
+
   return {
-    entries: entries.map((e, i) => ({
+    entries: entries.map((e) => ({
       qty: e.qty,
       name: e.name,
       set: e.set,
       collector_number: e.collector_number,
       isCommander: e.isCommander,
-      maybeCommander: looksLikeCommanderBlock && i === 0,
+      blockRole: e.group === lastGroup && lastIsSmall ? 'last' : e.group === 0 && firstIsSmall ? 'first' : null,
     })),
+    sideEntries,
     skippedCount,
   }
 }

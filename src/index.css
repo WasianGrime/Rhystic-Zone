@@ -1140,6 +1140,39 @@ button {
   min-width: 0;
 }
 
+.deck-commanders.has-partner {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.deck-commanders.has-partner .deck-commander-card {
+  margin-bottom: 10px;
+}
+
+.deck-commanders.has-partner .deck-commander-card h3 {
+  font-size: 0.95rem;
+}
+
+.deck-partner-search {
+  margin-top: 8px;
+}
+
+.deck-partner-remove {
+  margin-top: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-decoration: underline;
+}
+
+.deck-partner-remove:hover {
+  color: var(--danger);
+}
+
 .deck-commander-card h3 {
   margin: 0 0 8px;
   font-size: 1.15rem;

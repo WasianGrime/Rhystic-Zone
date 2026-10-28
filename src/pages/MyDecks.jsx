@@ -40,7 +40,7 @@ export default function MyDecks() {
               )}
               <div className="deck-summary-info">
                 <h3>{deck.name}</h3>
-                <p>{deck.commander?.name || 'No commander set'}</p>
+                <p>{[deck.commander?.name, deck.partner?.name].filter(Boolean).join(' & ') || 'No commander set'}</p>
                 <p className="section-hint">{deck.cards?.length || 0} unique cards</p>
                 <div className="deck-summary-actions">
                   <Link to={`/builder/${deck.id}`}>Edit</Link>
