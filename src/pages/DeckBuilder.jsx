@@ -119,6 +119,7 @@ export default function DeckBuilder() {
   const [sortMode, setSortMode] = useState('type')
   const [sideboard, setSideboard] = useState(existing?.sideboard || []) // [{ card, qty }]
   const [selected, setSelected] = useState(null) // { cardId, zone: 'main' | 'sideboard' }
+  const [hoverCard, setHoverCard] = useState(null) // card shown in the left preview while hovering the list
   const [showImport, setShowImport] = useState(Boolean(location.state?.openImport))
   const [importing, setImporting] = useState(false)
 
@@ -612,24 +613,30 @@ export default function DeckBuilder() {
 
       <div className="deck-builder-grid">
         <section className="deck-commander-panel">
-          <h2>{partner ? 'Commanders' : 'Commander'}</h2>
-          {commander ? (
-            <div className={`deck-commanders ${partner ? 'has-partner' : ''}`}>
-              <CommanderCard card={commander} />
-              {partner && <CommanderCard card={partner} onRemove={() => setPartner(null)} />}
-            </div>
+          {hoverCard ? (
+            <CardPreview card={hoverCard} />
           ) : (
-            <p className="section-hint">Search for a legendary creature to set as your commander.</p>
-          )}
-          <CardSearchBox placeholder="Set commander…" onSelect={handlePickCommander} />
-          {commander && !partner && hasPartnerAbility(commander) && (
-            <div className="deck-partner-search">
-              <CardSearchBox placeholder="Add partner / background…" onSelect={handlePickPartner} />
-            </div>
+            <>
+            <h2>{partner ? 'Commanders' : 'Commander'}</h2>
+            {commander ? (
+              <div className={`deck-commanders ${partner ? 'has-partner' : ''}`}>
+                <CommanderCard card={commander} />
+                {partner && <CommanderCard card={partner} onRemove={() => setPartner(null)} />}
+              </div>
+            ) : (
+              <p className="section-hint">Search for a legendary creature to set as your commander.</p>
+            )}
+            <CardSearchBox placeholder="Set commander…" onSelect={handlePickCommander} />
+            {commander && !partner && hasPartnerAbility(commander) && (
+              <div className="deck-partner-search">
+                <CardSearchBox placeholder="Add partner / background…" onSelect={handlePickPartner} />
+              </div>
+            )}
+            </>
           )}
         </section>
 
-        <section className="deck-list-panel">
+        <section className="deck-list-panel" onMouseLeave={() => setHoverCard(null)}>
           <div className="deck-list-header">
             <h2>Deck ({totalCards} cards)</h2>
             <div className="deck-list-controls">
@@ -641,7 +648,7 @@ export default function DeckBuilder() {
               <CardSearchBox placeholder="Add a card…" onSelect={addCard} />
             </div>
           </div>
-          <ul className="deck-list">
+          <ul className={`deck-list ${sortMode === 'type' ? 'grouped' : ''}`}>
             {groupedCards.map((group, i) => (
               <li key={group.label || i} className="deck-list-group">
                 {group.label && (
@@ -655,6 +662,7 @@ export default function DeckBuilder() {
                       key={entry.card.id}
                       entry={entry}
                       onOpen={() => setSelected({ cardId: entry.card.id, zone: 'main' })}
+                      onHover={() => setHoverCard(entry.card)}
                       onAdjustQty={adjustQty}
                       onRemove={removeCard}
                     />
@@ -677,6 +685,7 @@ export default function DeckBuilder() {
                       key={entry.card.id}
                       entry={entry}
                       onOpen={() => setSelected({ cardId: entry.card.id, zone: 'sideboard' })}
+                      onHover={() => setHoverCard(entry.card)}
                       onRemove={removeFromSideboard}
                     />
                   ))}
@@ -686,14 +695,22 @@ export default function DeckBuilder() {
         </section>
 
         <section className="deck-stats-panel">
-          <h2>Estimated Value</h2>
-          <p className="deck-value">{formatPrice(totalValue)}</p>
-          <p className="section-hint">USD, Scryfall market prices. Unpriced cards count as $0.</p>
-          <h2>Mana Curve</h2>
-          <ManaCurveChart cards={cards} />
-          <h2>Color Distribution</h2>
-          <ColorDistributionChart cards={cards} />
-          <DeckExport deckName={deckName} commander={commander} partner={partner} cards={cards} sideboard={sideboard} />
+          <div className="deck-stat-block">
+            <h2>Estimated Value</h2>
+            <p className="deck-value">{formatPrice(totalValue)}</p>
+            <p className="section-hint">USD, Scryfall market prices. Unpriced cards count as $0.</p>
+          </div>
+          <div className="deck-stat-block">
+            <h2>Mana Curve</h2>
+            <ManaCurveChart cards={cards} />
+          </div>
+          <div className="deck-stat-block">
+            <h2>Color Distribution</h2>
+            <ColorDistributionChart cards={cards} />
+          </div>
+          <div className="deck-stat-block">
+            <DeckExport deckName={deckName} commander={commander} partner={partner} cards={cards} sideboard={sideboard} />
+          </div>
         </section>
       </div>
 
@@ -861,14 +878,28 @@ function CommanderCard({ card, onRemove }) {
   )
 }
 
-function DeckRow({ entry: { card, qty }, onOpen, onAdjustQty, onRemove }) {
+function CardPreview({ card }) {
+  const price = formatPrice(cardPrice(card))
+  return (
+    <div className="deck-hover-preview">
+      <div className="deck-hover-art">
+        <img src={cardImage(card, 'normal')} alt={card.name} />
+      </div>
+      <h3>{card.name}</h3>
+      <p className="type-line">{card.type_line || card.card_faces?.[0]?.type_line}</p>
+      {price && <p className="card-price-line small">{price}</p>}
+    </div>
+  )
+}
+
+function DeckRow({ entry: { card, qty }, onOpen, onHover, onAdjustQty, onRemove }) {
   // Row clicks open the card options; the controls inside must not.
   const stop = (fn) => (e) => {
     e.stopPropagation()
     fn()
   }
   return (
-    <li className="deck-list-row" onClick={onOpen}>
+    <li className="deck-list-row" onClick={onOpen} onMouseEnter={onHover}>
       <button type="button" className="deck-list-name deck-list-name-button" title="Card options">
         {card.name}
       </button>

@@ -1107,11 +1107,44 @@ button {
   gap: 10px;
 }
 
+.page.deck-builder {
+  max-width: 1600px;
+}
+
 .deck-builder-grid {
   display: grid;
-  grid-template-columns: 360px 1fr 260px;
+  grid-template-columns: 340px minmax(0, 1fr) 240px;
   gap: 24px;
   align-items: start;
+}
+
+/* The left column follows you down the list so the hover preview is always in view. */
+.deck-commander-panel {
+  position: sticky;
+  top: 80px;
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+}
+
+.deck-hover-art {
+  aspect-ratio: 5 / 7;
+  border-radius: 14px;
+  background: var(--bg-elevated);
+}
+
+.deck-hover-art img {
+  display: block;
+  width: 100%;
+  border-radius: 14px;
+}
+
+.deck-hover-preview h3 {
+  margin: 12px 0 2px;
+  font-size: 1.1rem;
+}
+
+.deck-hover-preview .type-line {
+  margin: 0 0 6px;
 }
 
 .deck-commander-panel,
@@ -1215,9 +1248,22 @@ button {
   list-style: none;
   padding: 0;
   margin: 0;
-  max-height: 560px;
-  overflow-y: auto;
-  overflow-x: hidden;
+  column-width: 640px;
+  column-gap: 28px;
+}
+
+/* Grouped by type, the group headers already say the type, so drop that
+   column and flow the list into several columns to avoid long scrolling. */
+.deck-list.grouped {
+  column-width: 360px;
+}
+
+.deck-list.grouped .deck-list-type {
+  display: none;
+}
+
+.deck-list.grouped .deck-list-row {
+  grid-template-columns: minmax(0, 1fr) 96px 52px auto auto;
 }
 
 .deck-list-group {
@@ -1225,6 +1271,7 @@ button {
 }
 
 .deck-list-group-header {
+  break-after: avoid;
   margin: 14px 0 4px;
   padding: 0 6px;
   font-size: 0.75rem;
@@ -1245,6 +1292,7 @@ button {
 }
 
 .deck-list-row {
+  break-inside: avoid;
   display: grid;
   grid-template-columns: 1.4fr 0.9fr 0.8fr 0.6fr auto auto;
   gap: 10px;
@@ -1602,8 +1650,35 @@ button {
   margin: 20px 0 4px;
 }
 
+.deck-stat-block + .deck-stat-block {
+  margin-top: 20px;
+}
+
+.deck-stat-block h2 {
+  margin-top: 0;
+}
+
 .deck-stats-panel h2:first-child {
   margin-top: 0;
+}
+
+/* Below ~1280px the three-column layout squeezes the list, so the stats drop
+   under it as a row and the list gets the whole middle. */
+@media (max-width: 1280px) and (min-width: 901px) {
+  .deck-builder-grid {
+    grid-template-columns: 300px minmax(0, 1fr);
+  }
+
+  .deck-stats-panel {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 24px;
+  }
+
+  .deck-stat-block + .deck-stat-block {
+    margin-top: 0;
+  }
 }
 
 .deck-value {
@@ -1905,6 +1980,12 @@ button {
   .commander-detail-top,
   .deck-builder-grid {
     grid-template-columns: 1fr;
+  }
+
+  .deck-commander-panel {
+    position: static;
+    max-height: none;
+    overflow: visible;
   }
 }
 
