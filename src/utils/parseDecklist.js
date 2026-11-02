@@ -10,8 +10,9 @@
 //    bottom of the list, separated from the rest by a blank line — how
 //    MTGGoldfish (top) and Moxfield (bottom) lay out their commanders.
 //
-// sideEntries are the cards from Sideboard sections (Moxfield's MTGO export
-// lists commanders there); callers use them only to look for commanders.
+// sideEntries are the cards from Sideboard sections, same shape as entries.
+// Moxfield's export puts the commanders in the last block of that section, so
+// a sideboard card can carry blockRole 'last' too.
 
 const SECTION_HEADERS = {
   commander: 'commander',
@@ -119,8 +120,8 @@ export function parseDecklist(text) {
       continue
     }
     if (lineSection === 'sideboard') {
-      skippedCount += qty
-      sideEntries.push({ qty, name, set, collector_number, isCommander: false, blockRole: null })
+      sideEntries.push({ qty, name, set, collector_number, isCommander: false, group })
+      groupHasEntries = true
       continue
     }
 
@@ -128,15 +129,16 @@ export function parseDecklist(text) {
     groupHasEntries = true
   }
 
-  // A block of one or two single cards at the very top or bottom of the list.
-  const lastGroup = entries.reduce((max, e) => Math.max(max, e.group), 0)
-  function smallBlock(groupIndex) {
-    if (lastGroup === 0) return false
-    const block = entries.filter((e) => e.group === groupIndex)
+  // A block of one or two single cards at the top or bottom of a section.
+  function smallBlock(list, groupIndex) {
+    const block = list.filter((e) => e.group === groupIndex)
     return block.length > 0 && block.length <= 2 && block.every((e) => e.qty === 1)
   }
-  const firstIsSmall = smallBlock(0)
-  const lastIsSmall = smallBlock(lastGroup)
+  const lastGroup = entries.reduce((max, e) => Math.max(max, e.group), 0)
+  const firstIsSmall = lastGroup > 0 && smallBlock(entries, 0)
+  const lastIsSmall = lastGroup > 0 && smallBlock(entries, lastGroup)
+  const lastSideGroup = sideEntries.reduce((max, e) => Math.max(max, e.group), 0)
+  const sideLastIsSmall = sideEntries.length > 0 && smallBlock(sideEntries, lastSideGroup)
 
   return {
     entries: entries.map((e) => ({
@@ -147,7 +149,14 @@ export function parseDecklist(text) {
       isCommander: e.isCommander,
       blockRole: e.group === lastGroup && lastIsSmall ? 'last' : e.group === 0 && firstIsSmall ? 'first' : null,
     })),
-    sideEntries,
+    sideEntries: sideEntries.map((e) => ({
+      qty: e.qty,
+      name: e.name,
+      set: e.set,
+      collector_number: e.collector_number,
+      isCommander: false,
+      blockRole: e.group === lastSideGroup && sideLastIsSmall ? 'last' : null,
+    })),
     skippedCount,
   }
 }

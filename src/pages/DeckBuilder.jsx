@@ -308,18 +308,10 @@ export default function DeckBuilder() {
       return false
     }
 
-    // With nothing marked, a Sideboard section of one or two cards is a
-    // commander candidate (Moxfield's MTGO export lists commanders there).
-    const hasMarked = entries.some((e) => e.isCommander)
-    const sideCandidates =
-      !hasMarked && sideEntries.length > 0 && sideEntries.length <= 2 && sideEntries.every((e) => e.qty === 1)
-        ? sideEntries
-        : []
-
     setImporting(true)
     let lookedUp
     try {
-      lookedUp = await resolveCardRequests([...entries, ...sideCandidates])
+      lookedUp = await resolveCardRequests([...entries, ...sideEntries])
     } catch {
       setNotice('Couldn’t reach Scryfall to look up that list. Try again in a moment.')
       return false
@@ -329,20 +321,22 @@ export default function DeckBuilder() {
     const resolved = lookedUp.slice(0, entries.length)
     const sideResolved = lookedUp.slice(entries.length)
 
-    const missing = entries.filter((_, i) => !resolved[i]).map((e) => e.name)
+    const missing = [
+      ...entries.filter((_, i) => !resolved[i]).map((e) => e.name),
+      ...sideEntries.filter((_, k) => !sideResolved[k]).map((e) => e.name),
+    ]
 
     // Commanders: explicitly marked cards win (up to two). Otherwise look for
     // a lone commander, or a compatible pair, in the places other sites put
-    // them: a sideboard section, then the bottom of the list, then the top.
+    // them: the end of a sideboard section (Moxfield), then the bottom of the
+    // list, then the top (MTGGoldfish).
     const mainItems = entries.map((entry, index) => ({ entry, index, card: resolved[index] }))
+    const sideItems = sideEntries.map((entry, k) => ({ entry, index: -1 - k, card: sideResolved[k] }))
     let chosen = mainItems.filter((it) => it.entry.isCommander && it.card).slice(0, 2)
     let assumedWhere = null
     if (chosen.length === 0) {
       const sources = [
-        {
-          where: 'in a sideboard section',
-          items: sideCandidates.map((entry, k) => ({ entry, index: -1, card: sideResolved[k] })),
-        },
+        { where: 'at the end of the sideboard section', items: sideItems.filter((it) => it.entry.blockRole === 'last') },
         { where: 'on its own at the bottom', items: mainItems.filter((it) => it.entry.blockRole === 'last') },
         { where: 'on its own at the top', items: mainItems.filter((it) => it.entry.blockRole === 'first') },
       ]
@@ -388,7 +382,19 @@ export default function DeckBuilder() {
     const nextCards = [...merged.values()]
     const added = nextCards.reduce((sum, e) => sum + e.qty, 0) - totalCards
 
+    // Everything else in a Sideboard section goes to the sideboard.
+    let nextSideboard = sideboard
+    let sideAdded = 0
+    sideEntries.forEach((entry, k) => {
+      const card = sideResolved[k]
+      if (!card || chosenIndexes.has(-1 - k)) return
+      const before = nextSideboard.reduce((sum, e) => sum + e.qty, 0)
+      nextSideboard = addToList(nextSideboard, card, entry.qty)
+      sideAdded += nextSideboard.reduce((sum, e) => sum + e.qty, 0) - before
+    })
+
     setCards(nextCards)
+    if (nextSideboard !== sideboard) setSideboard(nextSideboard)
     if (newCommander) {
       setCommander(newCommander)
       setPartner(newPartner)
@@ -426,9 +432,8 @@ export default function DeckBuilder() {
       const copies = duplicates === 1 ? '1 duplicate copy' : `${duplicates} duplicate copies`
       parts.push(`Skipped ${copies} (Commander decks are singleton).`)
     }
-    const claimedFromSideboard = chosen.filter((it) => it.index === -1).length
-    const leftOut = skippedCount - claimedFromSideboard
-    if (leftOut > 0) parts.push(`Left out ${plural(leftOut, 'sideboard/maybeboard card')}.`)
+    if (sideAdded > 0) parts.push(`Added ${plural(sideAdded, 'card')} to the sideboard.`)
+    if (skippedCount > 0) parts.push(`Left out ${plural(skippedCount, 'maybeboard/companion card')}.`)
     if (finalCommander) {
       const outside = countOutsideIdentity(
         nextCards.map((e) => e.card),
