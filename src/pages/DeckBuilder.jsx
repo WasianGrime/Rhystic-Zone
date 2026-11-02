@@ -527,7 +527,25 @@ export default function DeckBuilder() {
     setNotice(parts.join(' '))
   }
 
+  // Takes a commander (or partner) out of the command zone. The partner steps
+  // up to commander if the commander goes; `toDeck` keeps the card in the main deck.
+  function removeCommanderCard(zone, toDeck) {
+    const card = zone === 'commander' ? commander : partner
+    if (!card) return
+    if (toDeck) setCards((prev) => addToList(prev, card, 1))
+    if (zone === 'commander') setCommander(partner)
+    setPartner(null)
+    setSelected(null)
+    setNotice(toDeck ? `${card.name} moved to the main deck.` : `${card.name} removed as a commander.`)
+  }
+
   function changePrinting(zone, entry, printing) {
+    if (zone === 'commander' || zone === 'partner') {
+      if (zone === 'commander') setCommander(printing)
+      else setPartner(printing)
+      setSelected({ cardId: printing.id, zone })
+      return
+    }
     const list = zone === 'main' ? cards : sideboard
     if (list.some((e) => e.card.id === printing.id)) {
       setNotice('That printing is already in this list.')
@@ -563,9 +581,14 @@ export default function DeckBuilder() {
     () => new Set([...cards.map((e) => e.card.id), ...(partner ? [partner.id] : [])]),
     [cards, partner]
   )
-  const selectedEntry = selected
-    ? (selected.zone === 'main' ? cards : sideboard).find((e) => e.card.id === selected.cardId)
-    : null
+  const selectedEntry = !selected
+    ? null
+    : selected.zone === 'commander'
+      ? commander && { card: commander, qty: 1 }
+      : selected.zone === 'partner'
+        ? partner && { card: partner, qty: 1 }
+        : (selected.zone === 'main' ? cards : sideboard).find((e) => e.card.id === selected.cardId)
+  const isCommanderZone = selected?.zone === 'commander' || selected?.zone === 'partner'
 
   function visibleRecs(sectionId, displayCount) {
     const section = recSections[sectionId]
@@ -649,6 +672,27 @@ export default function DeckBuilder() {
             </div>
           </div>
           <ul className={`deck-list ${sortMode === 'type' ? 'grouped' : ''}`}>
+            {commander && (
+              <li className="deck-list-group">
+                <h4 className="deck-list-group-header">
+                  {partner ? 'Commanders' : 'Commander'} ({partner ? 2 : 1})
+                </h4>
+                <ul className="deck-list-group-rows">
+                  {[
+                    { zone: 'commander', card: commander },
+                    ...(partner ? [{ zone: 'partner', card: partner }] : []),
+                  ].map(({ zone, card }) => (
+                    <DeckRow
+                      key={zone}
+                      entry={{ card, qty: 1 }}
+                      onOpen={() => setSelected({ cardId: card.id, zone })}
+                      onHover={() => setHoverCard(card)}
+                      onRemove={() => removeCommanderCard(zone, false)}
+                    />
+                  ))}
+                </ul>
+              </li>
+            )}
             {groupedCards.map((group, i) => (
               <li key={group.label || i} className="deck-list-group">
                 {group.label && (
@@ -786,14 +830,20 @@ export default function DeckBuilder() {
         <CardOptionsModal
           entry={selectedEntry}
           zone={selected.zone}
-          canMakeCommander={canBeCommander(selectedEntry.card)}
-          canAddPartner={Boolean(commander) && canPartner(commander, selectedEntry.card)}
+          canMakeCommander={!isCommanderZone && canBeCommander(selectedEntry.card)}
+          canAddPartner={!isCommanderZone && Boolean(commander) && canPartner(commander, selectedEntry.card)}
           onClose={() => setSelected(null)}
           onMakeCommander={() => makeCommander(selectedEntry, selected.zone)}
           onAddPartner={() => makePartner(selectedEntry, selected.zone)}
           onMoveToSideboard={() => moveToSideboard(selectedEntry)}
-          onMoveToMain={() => moveToMain(selectedEntry)}
+          onMoveToMain={() =>
+            isCommanderZone ? removeCommanderCard(selected.zone, true) : moveToMain(selectedEntry)
+          }
           onRemove={() => {
+            if (isCommanderZone) {
+              removeCommanderCard(selected.zone, false)
+              return
+            }
             if (selected.zone === 'main') removeCard(selectedEntry.card.id)
             else removeFromSideboard(selectedEntry.card.id)
             setSelected(null)
@@ -980,7 +1030,11 @@ function CardOptionsModal({
               </button>
             )}
             <button className="card-modal-action danger" onClick={onRemove}>
-              {zone === 'main' ? 'Remove from deck' : 'Remove from sideboard'}
+              {zone === 'main'
+                ? 'Remove from deck'
+                : zone === 'sideboard'
+                  ? 'Remove from sideboard'
+                  : 'Remove as commander'}
             </button>
           </div>
           <CardStats card={card} />
